@@ -5,7 +5,6 @@ import ssl
 
 from pyVim import connect
 from pyVmomi import vmodl
-from pyVmomi import vim
 
 
 import logging

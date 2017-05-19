@@ -9,8 +9,6 @@
 
 from pyVmomi import vim
 
-import utils
-
 
 def vm_info_json(vm_obj):
     """

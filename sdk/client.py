@@ -3,14 +3,14 @@
 from pyVmomi import vim
 from pyVmomi import vmodl
 
-import session
-
 from tools import vm
 from tools import cluster
 from tools import storage
 from tools import network
 from tools import esxi
 from tools import utils
+
+import session
 
 import logging
 LOG = logging.getLogger(__name__)
@@ -212,7 +212,7 @@ class VMwareClient(session.VMwareSession):
     def clone_vm(self, template_name, vm_name, datacenter_name, cluster_name,
                  res_pool_name, datastore_cluster, datastore_name, vmfolder_name,
                  disktype, disksize, cpunum, corenum, memoryMB, poweron, vm_net,
-                 is_template=False):
+                 dnslist, domain, hostname, is_template=False):
         """
         Clone a VM from a template/VM, datacenter_name, datastore_name, vm_folder
         cluster_name, resource_pool, and poweron are all optional.
@@ -245,7 +245,7 @@ class VMwareClient(session.VMwareSession):
         # get network config
         adaptermaplist = self._vm_network(vm_net)
         # get dns list
-        dnslist = self._vm_dns(dnslist=dnslist)
+        dnslist = self._vm_dns(dnslist)
         # get vm hostname config
         identity = self._vm_hostname(domain=domain, hostname=hostname)
         # get customspec
@@ -268,7 +268,7 @@ class VMwareClient(session.VMwareSession):
         """
         VM network setting
         """
-        adaptermaplist=[]
+        adaptermaplist = []
         for net in vm_net:
             adaptermap = vim.vm.customization.AdapterMapping()
             fixedip = vim.vm.customization.FixedIp(ipAddress=net.ip)
@@ -283,7 +283,6 @@ class VMwareClient(session.VMwareSession):
         dnslist = ['10.1.10.14', '10.1.10.15']
         """
         return vim.vm.customization.GlobalIPSettings(dnsServerList=dnslist)
-
 
     def _vm_hostname(self, domain, hostname):
         """
@@ -311,8 +310,8 @@ class VMwareClient(session.VMwareSession):
         vim.vm.device.VirtualDiskSpec
         """
         vm_conf = vim.vm.ConfigSpec()
-        vm_conf.numCPUs = cpu_num
-        vm_conf.numCoresPerSocket = core_num
+        vm_conf.numCPUs = cpunum
+        vm_conf.numCoresPerSocket = corenum
         vm_conf.memoryMB = memoryMB
 
         return vm_conf
