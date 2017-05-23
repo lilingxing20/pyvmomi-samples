@@ -243,17 +243,21 @@ class VMwareClient(session.VMwareSession):
             res_pool_obj = cluster_obj.resourcePool
 
         # get network config
-        adaptermaplist = self._vm_network(vm_net)
+        adaptermaplist = vm.config_vm_network(vm_net)
         # get dns list
-        dnslist = self._vm_dns(dnslist)
+        dnslist = vm.config_vm_dns(dnslist)
         # get vm hostname config
-        identity = self._vm_hostname(domain=domain, hostname=hostname)
-        # get customspec
-        customspec = self._vm_customspec(adaptermap=adaptermaplist, globalip=dnslist, identity=identity)
-        # get vm config
-        vm_conf = self._vm_config(disktype, disksize, cpunum, corenum, memoryMB)
+        if not hostname:
+            hostname = vm_name
+        identity = vm.config_vm_hostname(hostname=hostname, domain=domain)
+        # get vm system\disk config
+        vm_conf = vm.update_vm_config(template_obj, disktype, disksize, cpunum, corenum, memoryMB)
+        # get vm relocate spec
+        relospec = vm.create_relospec(res_pool_obj, datastore_obj, disktype)
+        # get custom spec
+        customspec = vm.create_vm_customspec(adaptermap=adaptermaplist, globalip=dnslist, identity=identity)
         # get vm clone spec
-        vmclonespec = self._cloneSpec(customspec, vm_conf, res_pool_obj, datastore_obj, poweron, is_template)
+        vmclonespec = vm.create_clonespec(relospec, customspec, vm_conf, poweron, is_template)
 
         LOG.debug("cloning VM [%s]..." % vm_name)
         try:
@@ -261,77 +265,55 @@ class VMwareClient(session.VMwareSession):
         except vmodl.MethodFault as error:
             LOG.exception("Caught vmodl fault : " + error.msg)
         (ret_status, ret_str) = utils.wait_for_task(task)
-
         return ret_status
 
-    def _vm_network(self, vm_net):
+    def delete_vm_by_name(self, vm_name):
         """
-        VM network setting
+        delete vm
         """
-        adaptermaplist = []
-        for net in vm_net:
-            adaptermap = vim.vm.customization.AdapterMapping()
-            fixedip = vim.vm.customization.FixedIp(ipAddress=net.ip)
-            adaptermap.adapter = vim.vm.customization.IPSettings(ip=fixedip,
-                                                                 subnetMask=net.netmask,
-                                                                 gateway=net.gateway)
-            adaptermaplist.append(adaptermap)
-        return adaptermaplist
+        vm_obj = utils.filter_vm_obj(self.content, vm_name)
+        if vm_obj:
+            try:
+                if format(vm_obj.runtime.powerState) == "poweredOn":
+                    task = vm_obj.PowerOff()
+                    (ret_status, ret_str) = utils.wait_for_task(task)
+                if 0 == ret_status:
+                    task = vm_obj.Destroy_Task()
+                    (ret_status, ret_str) = utils.wait_for_task(task)
+                else:
+                    ret_status = -2
+            except vmodl.MethodFault as error:
+                LOG.exception("Caught vmodl fault : " + error.msg)
+        else:
+            ret_status = -1
+        return ret_status
 
-    def _vm_dns(self, dnslist):
+    def poweron_vm_by_name(self, vm_name):
         """
-        dnslist = ['10.1.10.14', '10.1.10.15']
+        power on vm
         """
-        return vim.vm.customization.GlobalIPSettings(dnsServerList=dnslist)
+        vm_obj = utils.filter_vm_obj(self.content, vm_name)
+        if vm_obj:
+            try:
+                task = vm_obj.PowerOn()
+            except vmodl.MethodFault as error:
+                LOG.exception("Caught vmodl fault : " + error.msg)
+            (ret_status, ret_str) = utils.wait_for_task(task)
+        else:
+            ret_status = -1
+        return ret_status
 
-    def _vm_hostname(self, domain, hostname):
+    def poweroff_vm_by_name(self, vm_name):
         """
-        hostname setting
+        power off vm
         """
-        fixedname = vim.vm.customization.FixedName(name=hostname)
-        return vim.vm.customization.LinuxPrep(domain=domain,
-                                              hostName=fixedname)
-
-    def _vm_customspec(self, adaptermap, globalip, identity):
-        """
-        Creating vm custom spec
-        """
-        customspec = vim.vm.customization.Specification(nicSettingMap=adaptermap,
-                                                        globalIPSettings=globalip,
-                                                        identity=identity)
-        return customspec
-
-    def _vm_config(self, disktype, disksize, cpunum=1, corenum=1, memoryMB=512):
-        """
-        CPU/Mem
-        mem = 512 #M
-        vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
-
-        vim.vm.device.VirtualDiskSpec
-        """
-        vm_conf = vim.vm.ConfigSpec()
-        vm_conf.numCPUs = cpunum
-        vm_conf.numCoresPerSocket = corenum
-        vm_conf.memoryMB = memoryMB
-
-        return vm_conf
-
-    def _clonespec(self, customspec, vm_conf, res_pool_obj, datastore_obj,
-                   poweron, is_template):
-        """
-        Create clone spec
-        """
-        # set ReloSpec
-        relospec = vim.vm.RelocateSpec()
-        relospec.datastore = datastore_obj
-        relospec.pool = res_pool_obj
-
-        # set CloneSpec
-        clonespec = vim.vm.CloneSpec()
-        clonespec.location = relospec
-        clonespec.powerOn = poweron
-        clonespec.template = is_template
-        clonespec.customization = customspec
-        clonespec.config = vm_conf
-
-        return clonespec
+        vm_obj = utils.filter_vm_obj(self.content, vm_name)
+        if vm_obj:
+            try:
+                task = vm_obj.PowerOff()
+            except vmodl.MethodFault as error:
+                LOG.exception("Caught vmodl fault : " + error.msg)
+            (ret_status, ret_str) = utils.wait_for_task(task)
+        else:
+            ret_status = -1
+        return ret_status

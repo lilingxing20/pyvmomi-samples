@@ -78,6 +78,18 @@ def filter_vmfolder_obj(content, vmfolder_name):
     return destfolder_obj
 
 
+def filter_vm_obj(content, vm_name):
+    """
+    @ parameters:
+    @@ vm_name: if none get the first one
+    """
+    if vm_name:
+        cluster_obj = get_obj(content, [vim.VirtualMachine], vm_name)
+    else:
+        cluster_obj = None
+    return cluster_obj
+
+
 def filter_datastore_obj(content, datastore_name):
     """
     @ parameters:

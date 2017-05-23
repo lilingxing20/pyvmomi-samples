@@ -10,6 +10,7 @@
 """
 
 from pyVmomi import vim
+import esxi
 
 
 def datacenter_info_json(dc_obj):
@@ -96,73 +97,7 @@ def cluster_info_json(cluster_obj):
 
     cluster_details["hosts"] = []
     for host_obj in cluster_obj.host:
-        host_details = {}
-        host_details["name"] = host_obj.name
-        host_details["tag"] = host_obj.tag
-        host_details["model"] = host_obj.summary.hardware.model
-        host_details["cpuMhz"] = host_obj.summary.hardware.cpuMhz
-        host_details["cpuModel"] = host_obj.summary.hardware.cpuModel
-        host_details["numCpuCores"] = host_obj.summary.hardware.numCpuCores
-        host_details["numCpuPkgs"] = host_obj.summary.hardware.numCpuPkgs
-        host_details["memorySize"] = host_obj.summary.hardware.memorySize
-        host_details["product"] = host_obj.config.product.__dict__
-        host_details["memoryAllocation"] = host_obj.systemResources.config.memoryAllocation.reservation
-        host_details["cpuAllocation"] = host_obj.systemResources.config.cpuAllocation.reservation
-
-        host_details["disklun"] = disklun_info_json(host_obj.config.storageDevice.scsiLun)
-        host_details["datastore"] = datastore_info_json(host_obj.datastore)
-
+        host_details = esxi.esxi_info_json(host_obj)
         cluster_details["hosts"].append(host_details)
 
     return cluster_details
-
-
-def disklun_info_json(scsilun_objs):
-    """
-    To json information for a particular esxi host disk lun
-    @ scsilun_objs: vim.host.ScsiLun
-    @@  vim.host.ScsiDisk
-    """
-    scsiluns_info = []
-    for lun_obj in scsilun_objs:
-        if not isinstance(lun_obj, vim.host.ScsiDisk):
-            continue
-        lun_info = {}
-        lun_info['deviceName'] = lun_obj.deviceName
-        lun_info['displayName'] = lun_obj.displayName
-        lun_info['canonicalName'] = lun_obj.canonicalName
-        lun_info['vendor'] = lun_obj.vendor
-        lun_info['blockSize'] = lun_obj.capacity.blockSize
-        lun_info['block'] = lun_obj.capacity.block
-        lun_info['devicePath'] = lun_obj.devicePath
-        lun_info['ssd'] = lun_obj.ssd
-        lun_info['localDisk'] = lun_obj.localDisk
-
-        scsiluns_info.append(lun_info)
-
-    return scsiluns_info
-
-
-def datastore_info_json(ds_objs):
-    """
-    To json information for a particular esxi host datastore
-    @ scsilun_objs: vim.host.ScsiLun
-    @@  vim.host.ScsiDisk
-    """
-    dss_info = []
-    for ds_obj in ds_objs:
-        ds_info = {}
-        ds_info['name'] = ds_obj.name
-        ds_info['tag'] = ds_obj.tag
-        ds_info['capacity'] = ds_obj.summary.capacity
-        ds_info['freeSpace'] = ds_obj.summary.freeSpace
-        ds_info['url'] = ds_obj.summary.url
-        ds_info['accessible'] = ds_obj.summary.accessible
-        ds_info['multipleHostAccess'] = ds_obj.summary.multipleHostAccess
-        ds_info['type'] = ds_obj.summary.type
-        ds_info['ssd'] = ds_obj.info.vmfs.ssd
-        ds_info['local'] = ds_obj.info.vmfs.local
-
-        dss_info.append(ds_info)
-
-    return dss_info
