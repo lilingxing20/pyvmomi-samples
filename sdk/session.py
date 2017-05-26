@@ -9,6 +9,7 @@ from pyVmomi import vmodl
 
 import logging
 LOG = logging.getLogger(__name__)
+FileLOG = logging.getLogger('filelogger')
 
 
 class VMwareSession(object):
@@ -46,12 +47,12 @@ class VMwareSession(object):
 
             atexit.register(connect.Disconnect, self.si)
 
-            LOG.info("The vCenter has authenticated.")
-            LOG.debug("The vCenter server is {}!".format(self.host))
+            FileLOG.info("The vCenter has authenticated.")
+            FileLOG.debug("The vCenter server is {}!".format(self.host))
             # NOTE (hartsock): only a successfully authenticated session has a
             # session key aka session id.
             session_id = service_instance.content.sessionManager.currentSession.key
-            LOG.debug("current session id: {}".format(session_id))
+            FileLOG.debug("current session id: {}".format(session_id))
 
         except vmodl.MethodFault as error:
             LOG.exception("Caught vmodl fault : " + error.msg)

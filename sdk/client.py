@@ -9,6 +9,7 @@ from tools import storage
 from tools import network
 from tools import esxi
 from tools import utils
+from tools import datacenter
 
 import session
 
@@ -26,6 +27,20 @@ class VMwareClient(session.VMwareSession):
                                            pwd=pwd,
                                            port=port)
         self.content = self.si.RetrieveContent()
+
+    def get_datacenter_detail(self):
+        """
+        """
+        dc_detail = []
+        try:
+            dc_objs = utils.get_objs(self.content, self.content.rootFolder, [vim.Datacenter])
+            for obj in dc_objs:
+                dc_info = datacenter.get_datacenter_detail(self.content, obj)
+                dc_detail.append(dc_info)
+        except vmodl.MethodFault as error:
+            LOG.exception("Caught vmodl fault : " + error.msg)
+        return dc_detail
+
 
     def vcenter_details(self):
         """
@@ -198,6 +213,22 @@ class VMwareClient(session.VMwareSession):
             LOG.exception("Caught vmodl fault : " + error.msg)
 
         return net_details
+
+    def get_vm_template(self):
+        templates = {}
+        try:
+            object_view = self.content.viewManager.CreateContainerView(self.content.rootFolder,
+                                                                       [vim.VirtualMachine],
+                                                                       True)
+            for obj in object_view.view:
+                vm_info = vm.vm_info_json(obj)
+                if vm_info.get('is_template'):
+                    templates[obj.name] = vm.vm_info_json(obj)
+            object_view.Destroy()
+        except vmodl.MethodFault as error:
+            LOG.exception("Caught vmodl fault : " + error.msg)
+
+        return templates
 
     def get_vm_template_by_name(self, template_name):
         return self.get_vm_by_name(template_name)

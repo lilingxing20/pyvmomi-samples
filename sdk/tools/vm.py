@@ -31,7 +31,6 @@ def vm_info_json(vm_obj):
     vm_details["guestFullName"] = vm_obj.guest.guestFullName
     vm_details["guestId"] = vm_obj.guest.guestId
     vm_details["hostName"] = vm_obj.guest.hostName
-    vm_details["ip"] = vm_obj.guest.ipAddress
 
     vm_details["numCoresPerSocket"] = vm_obj.config.hardware.numCoresPerSocket
     vm_details["numCPU"] = vm_obj.config.hardware.numCPU
@@ -40,7 +39,31 @@ def vm_info_json(vm_obj):
     disks_info = disk_info_json(vm_obj.config.hardware.device)
     vm_details['disk'] = disks_info
     vm_details['is_template'] = vm_obj.config.template
+
+    vm_details["ip"] = vm_obj.guest.ipAddress
+    vm_ipv4 = []
+    vm_ipv6 = []
+    for net in vm_obj.guest.net:
+        if net.ipAddress:
+            vm_ipv4.append(net.ipAddress[0])
+            if len(net.ipAddress) >= 2:
+                vm_ipv6.append(net.ipAddress[1])
+    vm_details["ipv4"] = vm_ipv4
+    vm_details["ipv6"] = vm_ipv6
     return vm_details
+
+
+def vm_net_info(net):
+    """
+    """
+    net_list = []
+    for n in net:
+        net_info = {}
+        net_info['macAddress'] = n.macAddress
+        net_info['network'] = n.network
+        net_info['ipAddress'] = n.ipAddress
+        net_list.append(net_info)
+    return net_list
 
 
 def disk_info_json(virtual_devices):

@@ -10,6 +10,33 @@
 from pyVmomi import vim
 
 
+def get_objs(content, vimfolder, vimtype):
+    """
+    Return an object by name, if name is None the first found object
+    is returned
+    @ parameters:
+    @@ content: vim.ServiceInstanceContent
+    @@ vimfolder: vim.Folder
+    @@ vimtype: vim.ClusterComputeResource
+    *           vim.Datacenter
+    *           vim.Datastore
+    *           vim.dvs.DistributedVirtualPortgroup
+    *           vim.dvs.VmwareDistributedVirtualSwitch
+    *           vim.Folder
+    *           vim.HostSystem
+    *           vim.Network
+    *           vim.ResourcePool
+    *           vim.StoragePod
+    *           vim.VirtualApp
+    *           vim.VirtualMachine
+
+    """
+    container = content.viewManager.CreateContainerView(vimfolder, vimtype, True)
+    objs = container.view
+    container.Destroy()
+    return objs
+
+
 def get_obj(content, vimtype, name):
     """
     Return an object by name, if name is None the first found object
@@ -43,7 +70,7 @@ def get_obj(content, vimtype, name):
         else:
             obj = o
             break
-
+    container.Destroy()
     return obj
 
 
