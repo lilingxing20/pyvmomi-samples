@@ -1,19 +1,12 @@
 # -*- coding:utf-8 -*-
 
-from pyVmomi import vim
-from pyVmomi import vmodl
+import logging
 
-from tools import vm
-from tools import cluster
-from tools import storage
-from tools import network
-from tools import esxi
-from tools import utils
-from tools import datacenter
+from pyVmomi import vim, vmodl
 
 import session
+from tools import cluster, datacenter, esxi, network, storage, utils, vm
 
-import logging
 LOG = logging.getLogger(__name__)
 
 
@@ -40,7 +33,6 @@ class VMwareClient(session.VMwareSession):
         except vmodl.MethodFault as error:
             LOG.exception("Caught vmodl fault : " + error.msg)
         return dc_detail
-
 
     def vcenter_details(self):
         """
@@ -280,7 +272,7 @@ class VMwareClient(session.VMwareSession):
         # get vm hostname config
         if not hostname:
             hostname = vm_name
-        identity = vm.config_vm_hostname(hostname=hostname, domain=domain)
+        identity = vm.config_vm_sysprep(hostname=hostname, domain=domain)
         # get vm system\disk config
         vm_conf = vm.update_vm_config(template_obj, disktype, disksize, cpunum, corenum, memoryMB)
         # get vm relocate spec
@@ -295,8 +287,8 @@ class VMwareClient(session.VMwareSession):
             task = template_obj.Clone(name=vm_name, folder=destfolder, spec=vmclonespec)
         except vmodl.MethodFault as error:
             LOG.exception("Caught vmodl fault : " + error.msg)
-        (ret_status, ret_str) = utils.wait_for_task(task)
-        return ret_status
+        # (ret_status, ret_str) = utils.wait_for_task(task)
+        return task
 
     def delete_vm_by_name(self, vm_name):
         """

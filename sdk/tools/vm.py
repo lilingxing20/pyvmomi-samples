@@ -8,6 +8,7 @@
 
 
 from pyVmomi import vim
+
 import constants
 
 
@@ -139,22 +140,44 @@ def config_vm_dns(dnslist):
     return vim.vm.customization.GlobalIPSettings(dnsServerList=dnslist)
 
 
-def config_vm_hostname(hostname, domain='localhost.domain'):
+def config_vm_sysprep(hostname, domain='localhost.domain', vm_pwd='123456', sys_type='linux'):
     """
     hostname setting
     """
+    prepspec = None
     fixedname = vim.vm.customization.FixedName(name=hostname)
-    return vim.vm.customization.LinuxPrep(domain=domain,
-                                          hostName=fixedname)
+    if sys_type == 'linux':
+        prepspec = vim.vm.customization.LinuxPrep(hostName=fixedname,
+                                                  domain=domain,
+                                                  timeZone='Asia/Shanghai')
+    elif sys_type == 'windows':
+        ### timeZone: https://technet.microsoft.com/en-us/library/ms145276(v=sql.90).aspx
+        passwd = vim.vm.customization.Password(value=vm_pwd, plainText=True)
+        guiunattended = vim.vm.customization.GuiUnattended(password=passwd,
+                                                           timeZone=210,
+                                                           autoLogon=True,
+                                                           autoLogonCount=1)
+        # identification = vim.vm.customization.Identification(joinDomain='',
+        #                                                      domainAdmin='',
+        #                                                      domainAdminPassword=passwd)
+        userdata = vim.vm.customization.UserData(fullName=hostname,
+                                                 orgName=hostname,
+                                                 computerName=fixedname,
+                                                 productId='')
+        identification = vim.vm.customization.Identification(joinWorkgroup='WORKGROUP')
+        prepspec = vim.vm.customization.Sysprep(guiUnattended=guiunattended,
+                                                userData=userdata,
+                                                identification=identification)
+    return prepspec
 
 
 def create_vm_customspec(adaptermap, globalip, identity):
     """
     Creating vm custom spec
     """
-    customspec = vim.vm.customization.Specification(nicSettingMap=adaptermap,
+    customspec = vim.vm.customization.Specification(identity=identity,
                                                     globalIPSettings=globalip,
-                                                    identity=identity)
+                                                    nicSettingMap=adaptermap)
     return customspec
 
 
@@ -223,6 +246,9 @@ def update_vm_config(template_obj, disktype, disksize, cpunum=1, corenum=1, memo
     """
     # update cpu and memory config
     vm_conf = vim.vm.ConfigSpec()
+    vm_conf.memoryHotAddEnabled = True
+    vm_conf.cpuHotAddEnabled = True
+    vm_conf.cpuHotRemoveEnabled = True
     vm_conf.numCPUs = cpunum
     vm_conf.numCoresPerSocket = corenum
     vm_conf.memoryMB = memoryMB

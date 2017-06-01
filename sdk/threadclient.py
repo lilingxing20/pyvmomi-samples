@@ -1,13 +1,13 @@
 # -*- coding:utf-8 -*-
 
+import logging
 import multiprocessing
-import threading
 import Queue
 import sys
+import threading
 
 import client
 
-import logging
 LOG = logging.getLogger(__name__)
 
 tasks_queue = Queue.Queue(0)

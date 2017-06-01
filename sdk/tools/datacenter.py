@@ -7,6 +7,7 @@
 """
 
 from pyVmomi import vim
+
 import utils
 import vm
 
@@ -27,14 +28,6 @@ def get_datacenter_detail(content, dc_obj):
         cluster = get_cluster_detail(content, obj)
         clusters_info.append(cluster)
     dc_details['cluster'] = clusters_info
-
-    # get vms info
-    vm_objs = utils.get_objs(content, dc_obj.vmFolder, [vim.VirtualMachine])
-    vms_info = []
-    for obj in vm_objs:
-        vm = get_vm_detail(obj)
-        vms_info.append(vm)
-    dc_details['vm'] = vms_info
     return dc_details
 
 
@@ -63,7 +56,7 @@ def get_cluster_detail(content, cluster_obj):
     for ds_obj in cluster_obj.datastore:
         ds_info = get_datastore_detail(ds_obj)
         datastores_info.append(ds_info)
-    cluster_details["datatore"] = datastores_info
+    cluster_details["datastore"] = datastores_info
 
     return cluster_details
 
@@ -101,6 +94,13 @@ def get_host_detail(esxi_obj):
     product_info.pop('dynamicProperty')
     product_info.pop('dynamicType')
     esxi_details['product'] = product_info
+
+    # get vms info
+    vms_info = []
+    for obj in esxi_obj.vm:
+        vm = get_vm_detail(obj)
+        vms_info.append(vm)
+    esxi_details['vm'] = vms_info
 
     return esxi_details
 

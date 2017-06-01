@@ -1,13 +1,12 @@
 # -*- coding:utf-8 -*-
 
 import atexit
+import logging
 import ssl
 
 from pyVim import connect
 from pyVmomi import vmodl
 
-
-import logging
 LOG = logging.getLogger(__name__)
 FileLOG = logging.getLogger('filelogger')
 

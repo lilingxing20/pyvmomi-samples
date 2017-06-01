@@ -10,6 +10,7 @@
 """
 
 from pyVmomi import vim
+
 import esxi
 
 

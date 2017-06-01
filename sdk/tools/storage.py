@@ -14,7 +14,7 @@ from pyVmomi import vim
 def datastore_info_json(ds_obj):
     """
     To json information for a particular datastore
-    @ ds_obj: vim.Datastore
+    @ ds_obj: vim.DataStore
     """
     ds_details = {}
     ds_details['name'] = ds_obj.name
