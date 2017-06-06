@@ -8,6 +8,7 @@
 """
 
 from pyVmomi import vim
+import constants
 
 
 def get_objs(content, vimfolder, vimtype):
@@ -133,3 +134,28 @@ def filter_cluster_obj(content, cluster_name):
     """
     cluster_obj = get_obj(content, [vim.ClusterComputeResource], cluster_name)
     return cluster_obj
+
+
+def get_network_obj(content, net_name):
+    """
+    @ parameters:
+    @@ net_name: if none return none
+    """
+    nic_obj = None
+    if net_name:
+        nic_obj = get_obj(content, [vim.Network], net_name)
+    return nic_obj
+
+
+def get_system_type(config_spec):
+    """
+    @ parameters:
+    @@ config_spece type: vim.vm.ConfigInfo
+    """
+    if config_spec.guestId in constants.WIN_OS_TYPES:
+        sys_type = 'windows'
+    elif config_spec.guestId in constants.LINUX_OS_TYPES:
+        sys_type = 'linux'
+    else:
+        sys_type = 'linux'
+    return sys_type

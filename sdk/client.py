@@ -269,12 +269,19 @@ class VMwareClient(session.VMwareSession):
         adaptermaplist = vm.config_vm_network(vm_net)
         # get dns list
         dnslist = vm.config_vm_dns(dnslist)
+        # get vm teplate system type
+        sys_type = utils.get_system_type(template_obj.config)
         # get vm hostname config
         if not hostname:
             hostname = vm_name
-        identity = vm.config_vm_sysprep(hostname=hostname, domain=domain)
+        identity = vm.config_vm_sysprep(hostname=hostname, domain=domain, sys_type=sys_type)
+        # get nic mo
+        for n in vm_net:
+            n_mo = utils.get_network_obj(self.content, n.get('net_name'))
+            if n_mo:
+                n['nic'] = n_mo
         # get vm system\disk config
-        vm_conf = vm.update_vm_config(template_obj, disktype, disksize, cpunum, corenum, memoryMB)
+        vm_conf = vm.update_vm_config(template_obj, vm_net, disktype, disksize, cpunum, corenum, memoryMB)
         # get vm relocate spec
         relospec = vm.create_relospec(res_pool_obj, datastore_obj, disktype)
         # get custom spec
@@ -287,8 +294,10 @@ class VMwareClient(session.VMwareSession):
             task = template_obj.Clone(name=vm_name, folder=destfolder, spec=vmclonespec)
         except vmodl.MethodFault as error:
             LOG.exception("Caught vmodl fault : " + error.msg)
-        # (ret_status, ret_str) = utils.wait_for_task(task)
-        return task
+
+        ret_data = {"task_key": task.info.key, "name": vm_name, "uuid": vm_conf.uuid, "memoryMB": vm_conf.memoryMB,
+                    "numCPUs": vm_conf.numCPUs, "numCores": vm_conf.numCoresPerSocket}
+        return ret_data
 
     def delete_vm_by_name(self, vm_name):
         """
@@ -340,3 +349,57 @@ class VMwareClient(session.VMwareSession):
         else:
             ret_status = -1
         return ret_status
+
+    def get_task_info_by_key(self, task_key):
+        """
+        get task info
+        """
+        task_info = {}
+        if not task_key:
+            return task_key
+        task_mo = None
+        try:
+            recent_tasks = self.content.taskManager.recentTask
+            for task in recent_tasks:
+                if task_key == task.info.key:
+                    task_mo = task
+                    break
+        except Exception, error:
+            LOG.exception("Caught fault : " + error)
+        if task_mo:
+            task_info["state"] = task_mo.info.state
+            task_info["progress"] = task_mo.info.progress
+            task_info["result"] = task_mo.info.result
+            if task_mo.info.error:
+                task_info["error"] = task_mo.info.error.msg
+            else:
+                task_info["error"] = None
+            task_info["result"] = task_mo.info.result
+        return task_info
+
+    def get_task_result_by_key(self, task_key):
+        """
+        get task info
+        """
+        task_result = {}
+        if not task_key:
+            return task_key
+        task_mo = None
+        try:
+            recent_tasks = self.content.taskManager.recentTask
+            for task in recent_tasks:
+                if task_key == task.info.key:
+                    task_mo = task
+                    break
+        except Exception, error:
+            LOG.exception("Caught fault : " + error)
+        if task_mo:
+            (status, result) = utils.wait_for_task(task)
+            vm_detail = None
+            if result and isinstance(result, vim.VirtualMachine):
+                vm_detail = vm.vm_info_json(result)
+            task_result["vm"] = vm_detail
+            task_result["state"] = task_mo.info.state
+            if task_mo.info.error:
+                task_result["error"] = task_mo.info.error.msg
+        return task_result

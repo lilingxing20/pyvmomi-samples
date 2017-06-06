@@ -10,6 +10,8 @@
 from pyVmomi import vim
 
 import constants
+import utils
+import uuid
 
 
 def vm_info_json(vm_obj):
@@ -23,8 +25,6 @@ def vm_info_json(vm_obj):
     vm_details["guest"] = vm_obj.summary.config.guestFullName
     vm_details["instanceUuid"] = vm_obj.summary.config.instanceUuid
     vm_details["uuid"] = vm_obj.summary.config.uuid
-    vm_details["numCpu"] = vm_obj.summary.config.numCpu
-    vm_details["memorySizeMB"] = vm_obj.summary.config.memorySizeMB
     vm_details["esxiHost"] = vm_obj.summary.runtime.host.name
     vm_details["state"] = vm_obj.summary.runtime.powerState
 
@@ -40,6 +40,7 @@ def vm_info_json(vm_obj):
     disks_info = disk_info_json(vm_obj.config.hardware.device)
     vm_details['disk'] = disks_info
     vm_details['is_template'] = vm_obj.config.template
+    vm_details['sys_type'] = utils.get_system_type(vm_obj.config)
 
     vm_details["ip"] = vm_obj.guest.ipAddress
     vm_ipv4 = []
@@ -151,7 +152,7 @@ def config_vm_sysprep(hostname, domain='localhost.domain', vm_pwd='123456', sys_
                                                   domain=domain,
                                                   timeZone='Asia/Shanghai')
     elif sys_type == 'windows':
-        ### timeZone: https://technet.microsoft.com/en-us/library/ms145276(v=sql.90).aspx
+        # timeZone: https://technet.microsoft.com/en-us/library/ms145276(v=sql.90).aspx
         passwd = vim.vm.customization.Password(value=vm_pwd, plainText=True)
         guiunattended = vim.vm.customization.GuiUnattended(password=passwd,
                                                            timeZone=210,
@@ -188,6 +189,7 @@ def create_relospec(res_pool_obj, datastore_obj, disktype):
     relospec = vim.vm.RelocateSpec()
     relospec.datastore = datastore_obj
     relospec.pool = res_pool_obj
+    # https://searchcode.com/codesearch/view/17448230/
     if disktype:
         if disktype == constants.DISK_TYPE_THIN:
             relospec.transform = 'sparse'
@@ -239,7 +241,44 @@ def change_disk_type_size(device_obj, disktype, disksize):
     return disk_spec
 
 
-def update_vm_config(template_obj, disktype, disksize, cpunum=1, corenum=1, memoryMB=512):
+def change_network_device(device_obj, vm_net):
+    """
+    @ parameters:
+    @@ device_obj:
+    @@@ type: vim.vm.device.VirtualEthernetCard
+    @@ vm_net:
+       [{'ip': '10.0.0.11', 'netmask': '255.255.255.0', 'gateway': '10.0.0.1', 'net_name': 'dvs-vlan-243', 'label': 1}]
+    """
+    nic_spec = None
+    for net in vm_net:
+        net_label = "Network adapter " + str(net.get('label'))
+        net_name = net.get('net_name')
+        nic_mo = net.get('nic')
+        if net_name and \
+           device_obj.deviceInfo.label == net_label and \
+           device_obj.backing.deviceName != net_name:
+            nic_spec = vim.vm.device.VirtualDeviceSpec()
+            nic_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
+            nic_spec.device = device_obj
+            nic_spec.device.wakeOnLanEnabled = True
+            nic_spec.device.connectable = vim.vm.device.VirtualDevice.ConnectInfo()
+            nic_spec.device.connectable.startConnected = True
+            nic_spec.device.connectable.allowGuestControl = True
+            if not isinstance(nic_mo, vim.dvs.DistributedVirtualPortgroup):
+                nic_spec.device.backing = vim.vm.device.VirtualEthernetCard.NetworkBackingInfo()
+                nic_spec.device.backing.network = nic_mo
+                nic_spec.device.backing.deviceName = net_name
+            else:
+                dvs_port_connection = vim.dvs.PortConnection()
+                dvs_port_connection.portgroupKey = nic_mo.key
+                dvs_port_connection.switchUuid = nic_mo.config.distributedVirtualSwitch.uuid
+                nic_spec.device.backing = vim.vm.device.VirtualEthernetCard.DistributedVirtualPortBackingInfo()
+                nic_spec.device.backing.port = dvs_port_connection
+            break
+    return nic_spec
+
+
+def update_vm_config(template_obj, vm_net, disktype, disksize, cpunum=1, corenum=1, memoryMB=512):
     """
     vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
     vim.vm.device.VirtualDiskSpec()
@@ -252,6 +291,7 @@ def update_vm_config(template_obj, disktype, disksize, cpunum=1, corenum=1, memo
     vm_conf.numCPUs = cpunum
     vm_conf.numCoresPerSocket = corenum
     vm_conf.memoryMB = memoryMB
+    vm_conf.uuid = str(uuid.uuid1())
 
     # update disk device config
     disk_changes = []
@@ -259,8 +299,12 @@ def update_vm_config(template_obj, disktype, disksize, cpunum=1, corenum=1, memo
         if isinstance(dev, vim.vm.device.VirtualDisk):
             disk_spec = change_disk_type_size(dev, disktype, disksize)
             disk_changes.append(disk_spec)
+        elif isinstance(dev, vim.vm.device.VirtualEthernetCard):
+            nic_spec = change_network_device(dev, vm_net)
+            if nic_spec:
+                disk_changes.append(nic_spec)
     if not disk_changes:
-        raise RuntimeError('Virtual disk could not be found.')
+        raise RuntimeError('Virtual disk or ethernet card could not be found.')
 
     vm_conf.deviceChange = disk_changes
     return vm_conf
