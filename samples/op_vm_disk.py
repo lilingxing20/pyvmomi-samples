@@ -8,6 +8,8 @@ File Name   : op_vm_disk.py
 Description : 
 '''
 
+import constants
+
 
 def get_usable_disk_unit_number(vm_mo, bus_num=None, unit_num=None):
     """
@@ -57,7 +59,7 @@ def add_disk(vm_mo, disk_size, disk_type, bus_num=None, unit_num=None):
     :param bus_num: scsi controller bus number [0-3]
     :param unit_num: disk unit number [0-6,8-15]
     """
-    spec = vim.vm.ConfigSpec()
+    config_spec = vim.vm.ConfigSpec()
     # get all disks on a VM
     (usable_bus_num, usable_unit_num) = get_usable_disk_unit_number(bus_num, unit_num)
     if not usable_bus_num or not usable_unit_num:
@@ -97,37 +99,58 @@ def add_disk(vm_mo, disk_size, disk_type, bus_num=None, unit_num=None):
     disk_spec.device = vim.vm.device.VirtualDisk()
     disk_spec.device.backing = \
         vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
-    if disk_type == 'thin':
+    if disk_type == constants.DISK_TYPE_THIN:
         disk_spec.device.backing.thinProvisioned = True
+    elif disk_type == constants.DISK_TYPE_PREALLOCATED:
+        disk_spec.device.backing.thinProvisioned = False
+    elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
+        disk_spec.device.backing.eagerlyScrub = True
     disk_spec.device.backing.diskMode = 'persistent'
     disk_spec.device.unitNumber = unit_number
     disk_spec.device.capacityInKB = new_disk_kb
     disk_spec.device.controllerKey = scsi_controller.key
     dev_changes.append(disk_spec)
-    spec.deviceChange = dev_changes
-    vm.ReconfigVM_Task(spec=spec)
+    config_spec.deviceChange = dev_changes
+    task = vm_mo.ReconfigVM_Task(spec=config_spec)
     print "%sGB disk added to %s" % (disk_size, vm.config.name)
-    return 0
+    return task
 
 
-def update_vm_disk(content, vm_mo, network_mo):
+def edit_disk(vm_mo, disk_size, disk_type, bus_num=None, unit_num=None):
     """
     """
     config_spec = vim.vm.ConfigSpec()
-
-    ## update disk
-    disk_changes = []
-    for device in vm_mo.config.hardware.device:
-        if not isinstance(device, vim.vm.device.VirtualEthernetCard):
+    dev_changes = []
+    disk_label_end = " " + str(disk_label)
+    for dev in vm_mo.config.hardware.device:
+        if not isinstance(dev, vim.vm.device.VirtualDisk):
             continue
-        nic_spec = update_nic_network(device, network_mo)
-        nic_changes.append(nic_spec)
+        if not dev.deviceInfo.label.endswith(disk_label_end):
+            continue
+        # edit disk type
+        disk_spec = vim.vm.device.VirtualDeviceSpec()
+        disk_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
+        disk_spec.device = dev
+        if disk_type:
+            if disk_type == constants.DISK_TYPE_THIN:
+                # disk_spec.device.backing.eagerlyScrub = None
+                disk_spec.device.backing.thinProvisioned = True
+            elif disk_type == constants.DISK_TYPE_PREALLOCATED:
+                # disk_spec.device.backing.eagerlyScrub = False
+                disk_spec.device.backing.thinProvisioned = False
+            elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
+                disk_spec.device.backing.eagerlyScrub = True
+                # disk_spec.device.backing.thinProvisioned = False
+        # else:
+        #     LOG.info('The same as the virtual machine template source format.')
 
-    ## add nic network
-    nic_spec = add_nic(network_mo, 'VMXNET3')
-    nic_changes.append(nic_spec)
+        # edit disk size
+        new_disk_kb = int(disk_size) * 1024 * 1024
+        if disk_spec.device.capacityInKB < new_disk_kb:
+            disk_spec.device.capacityInKB = new_disk_kb
+        dev_changes.append(disk_spec)
+        break
 
-    config_spec.deviceChange = nic_changes
-    task = vm.ReconfigVM_Task(config_spec)
+    config_spec.deviceChange = dev_changes
+    task = vm.ReconfigVM_Task(spec=config_spec)
     return task
-
