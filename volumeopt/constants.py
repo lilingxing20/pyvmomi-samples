@@ -48,6 +48,7 @@ SCSI_CONTROLLER_TYPES = {
         'ParaVirtual': vim.vm.device.ParaVirtualSCSIController,
         }
 
+DEFAULT_OS_TYPE = "otherGuest"
 
 LINUX_OS_TYPES = set([
     'centos64Guest',

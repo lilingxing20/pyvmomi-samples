@@ -96,7 +96,7 @@ def get_contains_obj(folder_obj):
     return obj_list
 
 
-def get_child_entity_by_name(folder, name, ref_type=None):
+def get_child_ref_by_name(folder, name, ref_type=None):
     child_ref = None
     for c_ref in folder.childEntity:
         if ref_type and not isinstance(c_ref, ref_type):
@@ -106,12 +106,20 @@ def get_child_entity_by_name(folder, name, ref_type=None):
     return child_ref
 
 
-def get_child_entity_by_moid(folder, moid):
+def get_child_ref_by_moid(folder, moid):
     child_ref = None
     for c_ref in folder.childEntity:
         if c_ref._moId == moid:
             child_ref = c_ref
     return child_ref
+
+
+def get_ref_from_array_by_moid(ref_array, moid):
+    f_ref = None
+    for _ref in ref_array:
+        if _ref._moId == moid:
+            f_ref = _ref
+    return f_ref
 
 
 def retrieve_objects(content, folder):
