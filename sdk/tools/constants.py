@@ -4,9 +4,27 @@
 Shared constants
 """
 
+from pyVmomi import vim
+
+
 DISK_TYPE_THIN = 'thin'
 DISK_TYPE_PREALLOCATED = 'preallocated'
 DISK_TYPE_EAGER_ZEROED_THICK = 'eagerZeroedThick'
+
+
+NIC_ADAPTER_TYPES = {
+        'E1000': vim.vm.device.VirtualE1000,
+        'E1000E': vim.vm.device.VirtualE1000e,
+        'VMXNET3': vim.vm.device.VirtualVmxnet3,
+        }
+
+SCSI_CONTROLLER_TYPES = {
+        'BusLogic': vim.vm.device.VirtualBusLogicController,
+        'LsiLogic': vim.vm.device.VirtualLsiLogicController,
+        'LsiLogicSAS': vim.vm.device.VirtualLsiLogicSASController,
+        'ParaVirtual': vim.vm.device.ParaVirtualSCSIController,
+        }
+
 
 LINUX_OS_TYPES = set([
     'centos64Guest',
