@@ -264,7 +264,7 @@ def parse_host_properties(host_refs, key=None):
                 if (h[k].__class__.__name__ == 'ManagedObject[]'):
                     h[k] = [o._moId for o in h[k]]
                 elif (h[k].__class__.__name__ == 'vim.host.ScsiLun[]'):
-                    scsiluns=[]
+                    scsiluns = []
                     for sl in h[k]:
                         if sl.__class__.__name__ == 'vim.host.ScsiDisk':
                             scsilun = {

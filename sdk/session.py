@@ -8,7 +8,9 @@ import ssl
 from builtins import object
 
 from pyVim import connect
-from pyVmomi import vmodl
+from pyVmomi import vim
+# from pyVmomi import vmodl
+
 
 LOG = logging.getLogger(__name__)
 
@@ -31,8 +33,8 @@ class VcenterSession(object):
         self.user = vcenter_info.user
         self.pwd = vcenter_info.pwd
         self.port = vcenter_info.port
-        self.si = None
-        self.auth_vcenter()
+        # connect vcenter server
+        self.si = self.auth_vcenter()
 
     def auth_vcenter(self):
         try:
@@ -43,13 +45,7 @@ class VcenterSession(object):
                                                     pwd=self.pwd,
                                                     port=int(self.port),
                                                     sslContext=context)
-            if not service_instance:
-                LOG.error("Could not connect to the specified host using "
-                          "specified username and password")
-            else:
-                self.si = service_instance
-
-            atexit.register(connect.Disconnect, self.si)
+            atexit.register(connect.Disconnect, service_instance)
 
             LOG.info("The vCenter has authenticated.")
             LOG.debug("The vCenter server is {}!".format(self.host))
@@ -58,6 +54,10 @@ class VcenterSession(object):
             session_id = service_instance.content.sessionManager.currentSession.key
             LOG.debug("current session id: {}".format(session_id))
 
+            return service_instance
+
+        except vim.fault.InvalidLogin as error:
+            LOG.exception("Caught vmodl fault : " + error.msg)
         # except vmodl.MethodFault as error:
         #     LOG.exception("Caught vmodl fault : " + error.msg)
         except Exception as error:

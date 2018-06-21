@@ -9,11 +9,12 @@ import uuid
 
 from pyVmomi import vim, vmodl
 
-from .session import VcenterSessionManager
-from .tools import vm
-from .tools import vmops
-from .tools import utils
-from .tools import task_utils
+from session import VcenterSessionManager
+from tools import vm
+from tools import vmops
+from tools import vmcloneops
+from tools import utils
+from tools import task_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -26,8 +27,11 @@ class VMwareClient(VcenterSessionManager):
     """ vmware client
     """
     def __init__(self, vcenter_info):
-        vc_session = self.get_vcenter_session(vcenter_info)
-        self.content = vc_session.si.content
+        self.session = self.get_vcenter_session(vcenter_info)
+        if self.session.is_connected():
+            self.content = self.session.si.content
+        else:
+            self.content = None
 
     def get_datastore_capacity_free(self, name=None, uuid=None, moid=None):
         ds_details = None
@@ -122,17 +126,18 @@ class VMwareClient(VcenterSessionManager):
         vm_net = utils.extended_network_moref(self.content, vm_net)
         # Extended datastore ds_moref attribute
         vm_disk = utils.extended_datastore_moref(self.content, vm_disk)
-        
+
         vm_uuid = str(uuid.uuid1())
         # Verify vm hostname
         hostname = vmops.sanitize_hostname(vm_name, hostname)
 
         # make clone spec
-        vmclonespec = vmops.VmCloneSpec(template_obj, sys_type, vm_uuid,
-                                        vm_net, vm_disk,
-                                        num_cpu, num_core, memoryMB,
-                                        res_pool_moref, esxi_moref, datastore_moref,
-                                        poweron, hostname, domain, dnslist, is_template)
+        vmclonespec = vmcloneops.VmCloneSpec(template_obj, sys_type, vm_uuid,
+                                             vm_net, vm_disk,
+                                             num_cpu, num_core, memoryMB,
+                                             res_pool_moref, esxi_moref, datastore_moref,
+                                             poweron, hostname, domain, dnslist,
+                                             is_template)
 
         LOG.debug("cloning VM [%s]..." % vm_name)
         try:
@@ -261,37 +266,10 @@ class VMwareClient(VcenterSessionManager):
                 task_result["error"] = task_mo.info.error.msg
         return task_result
 
-    def attach_disk(self, vm_name, vdev_node, disk):
-        """ attach disk to vm
-        disk: {'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick', 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''}
-        """
-        ds_moref = utils.get_datastore_moref(self.content, moid=disk['ds_moid'])
-        # vm_moref = utils.get_vm_moref(self.content, uuid=vm_uuid)
-        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
-
-        config_spec = vim.vm.ConfigSpec()
-        vmops.vm_add_disk(vm_moref, config_spec,
-                          vdev_node,
-                          ds_moref,
-                          disk['disk_type'],
-                          disk['disk_size'],
-                          disk.get('disk_file_path'))
-        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
-        return task_moref.info.key
-
-    def dettach_disk(self, vm_name, disk_file_path):
-        """ attach disk from vm
-        disk_file_path: '[DS5020_1] test_004/test_004_2.vmdk'
-        """
-        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
-        config_spec = vim.vm.ConfigSpec()
-        vmops.vm_remove_disk(vm_moref, config_spec, disk_file_path)
-        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
-        return task_moref.info.key
-
     def attach_disks(self, vm_name, disks):
         """ attach disk to vm
-        disks: [{'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick', 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''},
+        disks: [{'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick',
+                 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''},
                ]
         """
         utils.extended_datastore_moref(self.content, disks)
@@ -308,5 +286,13 @@ class VMwareClient(VcenterSessionManager):
         """
         vm_moref = utils.get_vm_moref(self.content, name=vm_name)
         config_spec = vmops.create_remove_disks_config_spec(vm_moref, disks)
+        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
+        return task_moref.info.key
+
+    def vm_extra_config(self, vm_name, options):
+        """ add or update vm extra configure
+        """
+        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
+        config_spec = vmops.create_extra_config_spec(options)
         task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
         return task_moref.info.key

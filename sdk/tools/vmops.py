@@ -1,38 +1,18 @@
 # -*- coding:utf-8 -*-
 
-"""
-@@ function:
-@ vm_info_json: get VM details
-
+""" vm edit spec config
 """
 from __future__ import absolute_import, division
 
 import re
 import six
 import logging
-from builtins import str
 from pyVmomi import vim
 
-from . import constants, utils
+from . import constants
 
 
 LOG = logging.getLogger(__name__)
-
-
-def filter_vm_hostname(vm_name, hostname):
-    """
-    1. Host name only allowed to contain the ASCII character [0-9a-zA-Z-].
-    Other are not allowed.
-    2. The beginning and end character not allowed is the '-'.
-    3. It is strongly recommended that do not use Numbers at the beginning,
-    though it is not mandatory
-
-    """
-    if not hostname:
-        hostname = vm_name
-    if not re.match(r'^[a-zA-Z][a-zA-Z\d-]*[a-zA-Z\d]$', hostname):
-        hostname = 'localhost'
-    return hostname
 
 
 def sanitize_hostname(vm_name, hostname, default_name='localhost'):
@@ -106,7 +86,7 @@ def dns_customization(dnslist):
     return vim.vm.customization.GlobalIPSettings(dnsServerList=dnslist)
 
 
-def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGROUP', passwd='123456', sys_type='linux'):
+def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGROUP', passwd='password01!', sys_type='linux'):
     """
     hostname setting
     """
@@ -135,55 +115,6 @@ def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGR
                                                       userData=userdata,
                                                       identification=identification)
     return sysprep_custom
-
-
-#def vm_add_disk(vm_moref, config_spec, vdev_node, ds_moref, disk_type, disk_size, disk_file_path=None):
-#    """
-#    """
-#    (c_bus_number, d_unit_number) = vdev_node.split(':')
-#    disk_spec = vim.vm.device.VirtualDeviceSpec()
-#
-#    # check or create disk controller dev
-#    scsi_controllers = get_vm_scsi_controller_dev(vm_moref)
-#    (controller, controller_spec) = _check_or_add_controller(scsi_controllers, int(c_bus_number),
-#                                                             scsi_type='LsiLogicSAS',
-#                                                             sharedbus_mode='physicalSharing')
-#    # create disk dev
-#    disk_spec.operation = "add"
-#    disk_spec.device = vim.vm.device.VirtualDisk()
-#    disk_spec.device.backing = vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
-#    # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/device/VirtualDiskOption/DiskMode.rst
-#    disk_spec.device.backing.diskMode = 'persistent'
-#    if disk_file_path:
-#        disk_spec.device.backing.fileName = disk_file_path
-#    else:
-#        disk_spec.fileOperation = "create"
-#    disk_spec.device.unitNumber = int(d_unit_number)
-#    disk_spec.device.key = 2000 + int(c_bus_number) * 16 + int(d_unit_number)
-#    disk_spec.device.controllerKey = controller.key
-#    disk_spec.device.backing.datastore = ds_moref
-#
-#    # set disk type
-#    _set_disk_type(disk_spec, disk_type)
-#
-#    # set disk size
-#    disk_spec.device.capacityInKB = int(disk_size) * 1024 * 1024
-#
-#    if controller_spec:
-#        config_spec.deviceChange.extend([controller_spec])
-#    config_spec.deviceChange.extend([disk_spec])
-#
-#
-#def vm_remove_disk(vm_moref, config_spec, disk_file_path):
-#    """ remove disk device from vm
-#    """
-#    disk_devs = get_vm_disk_dev(vm_moref)
-#    for dev in disk_devs:
-#        if dev.backing.fileName == disk_file_path:
-#            vm_remove_virtual_device(config_spec, dev, file_operation="destroy")
-#            controller_unit_number = dev.controllerKey - 1000
-#            vm_remove_scsi_controller(vm_moref, config_spec, controller_unit_number)
-#            break
 
 
 def create_attach_disks_config_spec(vm_moref, disks):
@@ -280,6 +211,7 @@ def vm_remove_scsi_controller(vm_moref, config_spec, bus_number):
                 vm_remove_virtual_device(config_spec, dev)
             break
 
+
 def vm_remove_virtual_device(config_spec, dev, file_operation=None):
     """ remove virtual device from vm
     """
@@ -291,7 +223,7 @@ def vm_remove_virtual_device(config_spec, dev, file_operation=None):
     config_spec.deviceChange.extend([device_spec])
 
 
-def _config_vm_disk(scsi_controllers, devs, disks):
+def config_vm_disk(scsi_controllers, devs, disks):
     """
     @ parameters:
     @@ devs: list
@@ -453,13 +385,12 @@ def _check_or_add_controller(scsi_controllers, bus_number,
         scsi_controller = f_controller
         if not isinstance(f_controller, scsi_type):
             LOG.warning('The current SCSI controller type does not match !')
-        if sharedbus_mode!= f_controller.sharedBus:
+        if sharedbus_mode != f_controller.sharedBus:
             LOG.warning('The current SCSI controller bus share mode does not match !')
     return (scsi_controller, controller_spec)
 
 
-
-def _config_vm_nic(devs, nets):
+def config_vm_nic(devs, nets):
     """
     @ parameters:
     @@ devs:  list
@@ -548,185 +479,25 @@ def _config_vm_nic(devs, nets):
 
 
 def get_vm_scsi_controller_dev(vm_moref):
-    return [dev for dev in vm_moref.config.hardware.device \
+    return [dev for dev in vm_moref.config.hardware.device
             if isinstance(dev, vim.vm.device.VirtualSCSIController)]
 
 
 def get_vm_disk_dev(vm_moref):
-    return [dev for dev in vm_moref.config.hardware.device \
+    return [dev for dev in vm_moref.config.hardware.device
             if isinstance(dev, vim.vm.device.VirtualDisk)]
 
 
 def get_vm_nic_adapter_dev(vm_moref):
-    return [dev for dev in vm_moref.config.hardware.device \
+    return [dev for dev in vm_moref.config.hardware.device
             if isinstance(dev, vim.vm.device.VirtualEthernetCard)]
 
 
-def create_configspec(num_cpu=1, num_core=1, memoryMB=512):
-    """
-    vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
-    vim.vm.device.VirtualDiskSpec()
-    """
-    # update cpu and memory config
+def create_extra_config_spec(options):
     config_spec = vim.vm.ConfigSpec()
-    # config_spec.memoryHotAddEnabled = True
-    # config_spec.cpuHotAddEnabled = True
-    # config_spec.cpuHotRemoveEnabled = True
-    config_spec.numCPUs = num_cpu
-    config_spec.numCoresPerSocket = num_core
-    config_spec.memoryMB = memoryMB
-    config_spec.uuid = str(uuid.uuid1())
+    for k, v in options.items():
+        opt = vim.option.OptionValue()
+        opt.key = k
+        opt.value = v
+        config_spec.extraConfig.append(opt)
     return config_spec
-
-
-def create_relospec(esxi_moref, res_pool_moref, datastore_moref, disk_spec_list):
-    """
-    Create relocate spec.
-    Disk Transform Rule:
-        [thin, preallocated, eagerZeroedThick] -> thin
-        [thin, preallocated]                   -> preallocated
-        [thin, preallocated, eagerZeroedThick] -> eagerZeroedThick
-    """
-    # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/RelocateSpec.rst
-    relospec = vim.vm.RelocateSpec()
-    relospec.datastore = datastore_moref
-    relospec.pool = res_pool_moref
-    relospec.host = esxi_moref
-
-    # if disk_type == constants.DISK_TYPE_THIN or disk_type == constants.DISK_TYPE_PREALLOCATED:
-    #     # relospec.transform = 'sparse'
-    #     relospec.transform = vim.vm.RelocateSpec.Transformation('sparse')
-    # elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
-    #     # relospec.transform = 'flat'
-    #     relospec.transform = vim.vm.RelocateSpec.Transformation('flat')
-
-    for disk_spec in disk_spec_list:
-        if disk_spec.operation != 'edit':
-            continue
-        disk_locator = vim.vm.RelocateSpec.DiskLocator()
-        disk_locator.diskId = disk_spec.device.key
-        disk_locator.diskBackingInfo = disk_spec.device.backing
-        if disk_spec.device.backing.datastore:
-            disk_locator.datastore = disk_spec.device.backing.datastore
-        relospec.disk.append(disk_locator)
-    return relospec
-
-
-def create_clonespec(relospec, customspec, config_spec, poweron, is_template):
-    """
-    Create clone spec
-    """
-    clonespec = vim.vm.CloneSpec()
-    clonespec.location = relospec
-    clonespec.customization = customspec
-    clonespec.config = config_spec
-    clonespec.powerOn = poweron
-    clonespec.template = is_template
-
-    return clonespec
-
-
-class VmCloneSpec():
-    """
-    make clone spec
-    """
-    def __init__(self, template_moref, sys_type, vm_uuid, vm_net, vm_disk, num_cpu, num_core, memoryMB, res_pool_moref, esxi_moref, datastore_moref, poweron, hostname, domain=None, dnslist=None, is_template=False):
-        """ init clone spec
-        """
-        self.clone_spec = vim.vm.CloneSpec()
-        self.clone_spec.powerOn = poweron
-        self.clone_spec.template = is_template
-        self.clone_spec.config = self.make_config_spec(template_moref,
-                                                       vm_uuid,
-                                                       vm_net,
-                                                       vm_disk,
-                                                       num_cpu,
-                                                       num_core,
-                                                       memoryMB)
-        self.clone_spec.location = self.make_relocate_spec(res_pool_moref,
-                                                           esxi_moref,
-                                                           datastore_moref)
-        self.clone_spec.customization = self.make_custom_spec(sys_type, vm_net, hostname,
-                                                              domain, dnslist)
-
-    def make_config_spec(self, template_moref, vm_uuid, vm_net, vm_disk, num_cpu=1, num_core=1, memoryMB=512):
-        """
-        vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
-        vim.vm.device.VirtualDiskSpec()
-        """
-        config_spec = vim.vm.ConfigSpec()
-        # config_spec.memoryHotAddEnabled = True
-        # config_spec.cpuHotAddEnabled = True
-        # config_spec.cpuHotRemoveEnabled = True
-        config_spec.numCPUs = num_cpu
-        config_spec.numCoresPerSocket = num_core
-        config_spec.memoryMB = memoryMB
-        config_spec.uuid = vm_uuid
-
-        # update device config
-        dev_changes = []
-        dev_nics = get_vm_nic_adapter_dev(template_moref)
-        dev_disks = get_vm_disk_dev(template_moref)
-        scsi_controllers = get_vm_scsi_controller_dev(template_moref)
-
-        nic_spec_list = _config_vm_nic(dev_nics, vm_net)
-        dev_changes += nic_spec_list
-        (disk_spec_list, controller_spec_list) = _config_vm_disk(scsi_controllers, dev_disks, vm_disk)
-        dev_changes += disk_spec_list
-        dev_changes += controller_spec_list
-        config_spec.deviceChange.extend(dev_changes)
-        return config_spec
-
-    def make_relocate_spec(self, res_pool_moref, esxi_moref, datastore_moref):
-        """
-        Create relocate spec.
-        Disk Transform Rule:
-            [thin, preallocated, eagerZeroedThick] -> thin
-            [thin, preallocated]                   -> preallocated
-            [thin, preallocated, eagerZeroedThick] -> eagerZeroedThick
-        """
-        # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/RelocateSpec.rst
-        relocate_spec = vim.vm.RelocateSpec()
-        relocate_spec.pool = res_pool_moref
-        relocate_spec.host = esxi_moref
-        relocate_spec.datastore = datastore_moref
-
-        # if disk_type == constants.DISK_TYPE_THIN or disk_type == constants.DISK_TYPE_PREALLOCATED:
-        #     # relospec.transform = 'sparse'
-        #     relospec.transform = vim.vm.RelocateSpec.Transformation('sparse')
-        # elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
-        #     # relospec.transform = 'flat'
-        #     relospec.transform = vim.vm.RelocateSpec.Transformation('flat')
-
-        for disk_spec in self.clone_spec.config.deviceChange:
-            if not isinstance(disk_spec.device, vim.vm.device.VirtualDeviceSpec) \
-                    or disk_spec.operation != 'edit':
-                continue
-            disk_locator = vim.vm.RelocateSpec.DiskLocator()
-            disk_locator.diskId = disk_spec.device.key
-            disk_locator.diskBackingInfo = disk_spec.device.backing
-            if disk_spec.device.backing.datastore:
-                disk_locator.datastore = disk_spec.device.backing.datastore
-            relocate_spec.disk.append(disk_locator)
-        return relocate_spec
-
-    def make_custom_spec(self, sys_type, vm_net, hostname, domain, dnslist):
-        """
-        Creating vm custom spec
-        """
-        custom_spec = vim.vm.customization.Specification()
-
-        # Make sysprep (hostname/domain/timezone/workgroup) customization
-        sysprep_custom = sysprep_customization(hostname=hostname, domain=domain, sys_type=sys_type)
-        custom_spec.identity = sysprep_custom
-
-        # Make network customization
-        adaptermap_custom = network_customization(vm_net)
-        custom_spec.nicSettingMap = adaptermap_custom
-
-        # Make dns customization
-        dns_custom = dns_customization(dnslist)
-        custom_spec.globalIPSettings = dns_custom
-
-        return custom_spec
-

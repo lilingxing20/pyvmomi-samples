@@ -15,4 +15,3 @@ def reconfig_vm_task(vm_moref, config_spec):
     except vmodl.MethodFault as error:
         LOG.exception("Caught vmodl fault : " + error.msg)
     return task_moref
-
