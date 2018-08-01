@@ -4,17 +4,11 @@ from __future__ import absolute_import
 
 import logging
 import uuid
-# import sys
-# from imp import reload
 
 from pyVmomi import vim, vmodl
 
-from session import VcenterSessionManager
-from tools import vm
-from tools import vmops
-from tools import vmcloneops
-from tools import utils
-from tools import task_utils
+from .session import VcenterSession
+from .tools import vm, vmops, utils, task_utils
 
 
 LOG = logging.getLogger(__name__)
@@ -23,15 +17,14 @@ LOG = logging.getLogger(__name__)
 # sys.setdefaultencoding('utf-8')
 
 
-class VMwareClient(VcenterSessionManager):
+class VMwareClient(object):
     """ vmware client
     """
+
     def __init__(self, vcenter_info):
-        self.session = self.get_vcenter_session(vcenter_info)
-        if self.session.is_connected():
-            self.content = self.session.si.content
-        else:
-            self.content = None
+        vc_session = VcenterSession(vcenter_info)
+        self.session = vc_session
+        self.content = vc_session.si.content
 
     def get_datastore_capacity_free(self, name=None, uuid=None, moid=None):
         ds_details = None
@@ -86,7 +79,7 @@ class VMwareClient(VcenterSessionManager):
     def clone_vm(self, template_name, vm_name, datacenter_name, cluster_name,
                  esxi_name, res_pool_name, datastore_cluster, datastore_name,
                  vmfolder_name, num_cpu, num_core, memoryMB, poweron,
-                 vm_disk, vm_net, dnslist, domain, hostname, is_template=False):
+                 vm_disk, vm_net, dnslist, domain, hostname,  vm_uuid, is_template=False):
         """
         Clone a VM from a template/VM, datacenter_name, datastore_name, vm_folder
         cluster_name, resource_pool, and poweron are all optional.
@@ -126,18 +119,17 @@ class VMwareClient(VcenterSessionManager):
         vm_net = utils.extended_network_moref(self.content, vm_net)
         # Extended datastore ds_moref attribute
         vm_disk = utils.extended_datastore_moref(self.content, vm_disk)
-
-        vm_uuid = str(uuid.uuid1())
+        if not vm_uuid:
+            vm_uuid = str(uuid.uuid1())
         # Verify vm hostname
         hostname = vmops.sanitize_hostname(vm_name, hostname)
 
         # make clone spec
-        vmclonespec = vmcloneops.VmCloneSpec(template_obj, sys_type, vm_uuid,
-                                             vm_net, vm_disk,
-                                             num_cpu, num_core, memoryMB,
-                                             res_pool_moref, esxi_moref, datastore_moref,
-                                             poweron, hostname, domain, dnslist,
-                                             is_template)
+        vmclonespec = vmops.VmCloneSpec(template_obj, sys_type, vm_uuid,
+                                        vm_net, vm_disk,
+                                        num_cpu, num_core, memoryMB,
+                                        res_pool_moref, esxi_moref, datastore_moref,
+                                        poweron, hostname, domain, dnslist, is_template)
 
         LOG.debug("cloning VM [%s]..." % vm_name)
         try:
@@ -166,6 +158,7 @@ class VMwareClient(VcenterSessionManager):
                     ret_status = -2
             except vmodl.MethodFault as error:
                 LOG.exception("Caught vmodl fault : " + error.msg)
+                return -1
         else:
             ret_status = -1
         return ret_status
@@ -180,6 +173,7 @@ class VMwareClient(VcenterSessionManager):
                 (ret_status, ret_str) = utils.wait_for_task(task)
             except vmodl.MethodFault as error:
                 LOG.exception("Caught vmodl fault : " + error.msg)
+                return -1
         else:
             ret_status = -1
         return ret_status
@@ -187,30 +181,38 @@ class VMwareClient(VcenterSessionManager):
     def poweron_vm(self, name=None, uuid=None):
         """ power on vm
         """
-        vm_obj = utils.get_vm_moref(self.content, name=name, uuid=uuid)
-        if vm_obj:
-            try:
-                task = vm_obj.PowerOn()
-            except vmodl.MethodFault as error:
-                LOG.exception("Caught vmodl fault : " + error.msg)
-            (ret_status, ret_str) = utils.wait_for_task(task)
-        else:
-            ret_status = -1
-        return ret_status
+        try:
+            vm_obj = utils.get_vm_moref(self.content, name=name, uuid=uuid)
+            if vm_obj:
+                try:
+                    task = vm_obj.PowerOn()
+                except vmodl.MethodFault as error:
+                    LOG.exception("Caught vmodl fault : " + error.msg)
+                    return -1
+                (ret_status, ret_str) = utils.wait_for_task(task)
+            else:
+                ret_status = -1
+            return ret_status
+        except Exception as ex:
+            return -1
 
     def poweroff_vm(self, name=None, uuid=None):
         """ power off vm
         """
-        vm_obj = utils.get_vm_moref(self.content, name=name, uuid=uuid)
-        if vm_obj:
-            try:
-                task = vm_obj.PowerOff()
-            except vmodl.MethodFault as error:
-                LOG.exception("Caught vmodl fault : " + error.msg)
-            (ret_status, ret_str) = utils.wait_for_task(task)
-        else:
-            ret_status = -1
-        return ret_status
+        try:
+            vm_obj = utils.get_vm_moref(self.content, name=name, uuid=uuid)
+            if vm_obj:
+                try:
+                    task = vm_obj.PowerOff()
+                except vmodl.MethodFault as error:
+                    LOG.exception("Caught vmodl fault : " + error.msg)
+                    return -1
+                (ret_status, ret_str) = utils.wait_for_task(task)
+            else:
+                ret_status = -1
+            return ret_status
+        except Exception as ex:
+            return -1
 
     def reboot_vm(self, name=None, uuid=None):
         """
@@ -241,7 +243,7 @@ class VMwareClient(VcenterSessionManager):
             for task in recent_tasks:
                 if task_key == task.info.key:
                     task_mo = task
-                    LOG.debug("found the task: %s" % task_key)
+                    # LOG.debug("found the task: %s" % task_key)
                     break
         except Exception as error:
             LOG.exception("Caught fault : " + error)
@@ -254,22 +256,50 @@ class VMwareClient(VcenterSessionManager):
             vm_detail = None
             if result and isinstance(result, vim.VirtualMachine):
                 vm_detail = vm.vm_info_json(result)
-                LOG.debug("found the task result: %s" % vm_detail)
+                # LOG.debug("found the task result: %s" % vm_detail)
             else:
                 # 在在这种情况，任务成功，但不以获取 VM 相关信息
                 pass
             task_result["vm"] = vm_detail
             task_result["state"] = task_mo.info.state
-            task_result["progress"] = 99 if task_mo.info.state == "success" else task_mo.info.progress
+            # task_result["progress"] = 99 if task_mo.info.state == "success" else task_mo.info.progress
+            task_result["progress"] = task_mo.info.progress
             if task_mo.info.error:
                 task_result["progress"] = 99
                 task_result["error"] = task_mo.info.error.msg
         return task_result
 
+    def attach_disk(self, vm_name, vdev_node, disk):
+        """ attach disk to vm
+        disk: {'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick', 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''}
+        """
+        ds_moref = utils.get_datastore_moref(self.content, moid=disk['ds_moid'])
+        # vm_moref = utils.get_vm_moref(self.content, uuid=vm_uuid)
+        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
+
+        config_spec = vim.vm.ConfigSpec()
+        vmops.vm_add_disk(vm_moref, config_spec,
+                          vdev_node,
+                          ds_moref,
+                          disk['disk_type'],
+                          disk['disk_size'],
+                          disk.get('disk_file_path'))
+        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
+        return task_moref.info.key
+
+    def dettach_disk(self, vm_name, disk_file_path):
+        """ attach disk from vm
+        disk_file_path: '[DS5020_1] test_004/test_004_2.vmdk'
+        """
+        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
+        config_spec = vim.vm.ConfigSpec()
+        vmops.vm_remove_disk(vm_moref, config_spec, disk_file_path)
+        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
+        return task_moref.info.key
+
     def attach_disks(self, vm_name, disks):
         """ attach disk to vm
-        disks: [{'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick',
-                 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''},
+        disks: [{'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick', 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''},
                ]
         """
         utils.extended_datastore_moref(self.content, disks)
@@ -286,13 +316,5 @@ class VMwareClient(VcenterSessionManager):
         """
         vm_moref = utils.get_vm_moref(self.content, name=vm_name)
         config_spec = vmops.create_remove_disks_config_spec(vm_moref, disks)
-        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
-        return task_moref.info.key
-
-    def vm_extra_config(self, vm_name, options):
-        """ add or update vm extra configure
-        """
-        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
-        config_spec = vmops.create_extra_config_spec(options)
         task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
         return task_moref.info.key

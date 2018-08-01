@@ -49,7 +49,6 @@ _HOST = ['name',
 _NETWORK = ['name', 'summary.accessible', 'host', 'vm']
 _DATASTORE = ['name',
               'overallStatus',
-              'vmfs',
               # 'info.vmfs.ssd',
               # 'info.vmfs.local',
               # 'info.vmfs.uuid',
@@ -109,7 +108,7 @@ def get_vc_properties(si, sync_flat=0):
 
     template_vms = []
     for vmk, vmv in vms.items():
-        if vmv['config.template']:
+        if vmv.get('config.template'):
             template_vms.append(vmv)
     for hk, hv in hosts.items():
         hv['vms'] = [vms[moid] for moid in hv['vm'] if moid in vms]
@@ -148,7 +147,7 @@ def get_vc_all_properties(si):
         # dc['templates'] = [vms[moid] for moid in dc['vm'] if moid in vms and vms[moid]['config.template']]
     templates = []
     for vmk, vmv in vms.items():
-        if vmv['config.template']:
+        if vmv.get('config.template'):
             templates.append(vmv)
     return (dcs, templates)
 
@@ -157,7 +156,7 @@ def get_vc_template_properties(si):
     vms = get_vm_properties(si, key='moid')
     template_vms = []
     for vmk, vmv in vms.items():
-        if vmv['config.template']:
+        if vmv.get('config.template'):
             template_vms.append(vmv)
     return template_vms
 
@@ -268,28 +267,28 @@ def parse_host_properties(host_refs, key=None):
                     for sl in h[k]:
                         if sl.__class__.__name__ == 'vim.host.ScsiDisk':
                             scsilun = {
-                                       # vim.host.ScsiLun
-                                       'deviceName': sl.deviceName,
-                                       'deviceType': sl.deviceType,
-                                       'key': sl.key,
-                                       'uuid': sl.uuid,
-                                       'canonicalName': sl.canonicalName,
-                                       'displayName': sl.displayName,
-                                       'lunType': sl.lunType,
-                                       'vendor': sl.vendor,
-                                       'model': sl.model,
-                                       'revision': sl.revision,
-                                       'scsiLevel': sl.scsiLevel,
-                                       'operationalState': ','.join(sl.operationalState),
-                                       'vStorageSupport': sl.vStorageSupport,
-                                       'protocolEndpoint': sl.protocolEndpoint,
-                                       # vim.host.ScsiDisk
-                                       'blockSize': sl.capacity.blockSize,
-                                       'block': sl.capacity.block,
-                                       'devicePath': sl.devicePath,
-                                       'localDisk': sl.localDisk,
-                                       'ssd': sl.ssd,
-                                       }
+                                # vim.host.ScsiLun
+                                'deviceName': sl.deviceName,
+                                'deviceType': sl.deviceType,
+                                'key': sl.key,
+                                'uuid': sl.uuid,
+                                'canonicalName': sl.canonicalName,
+                                'displayName': sl.displayName,
+                                'lunType': sl.lunType,
+                                'vendor': sl.vendor,
+                                'model': sl.model,
+                                'revision': sl.revision,
+                                'scsiLevel': sl.scsiLevel,
+                                'operationalState': ','.join(sl.operationalState),
+                                'vStorageSupport': sl.vStorageSupport,
+                                'protocolEndpoint': sl.protocolEndpoint,
+                                # vim.host.ScsiDisk
+                                'blockSize': sl.capacity.blockSize,
+                                'block': sl.capacity.block,
+                                'devicePath': sl.devicePath,
+                                'localDisk': sl.localDisk,
+                                'ssd': sl.ssd,
+                            }
                             scsiluns.append(scsilun)
                         else:
                             pass
@@ -304,6 +303,8 @@ def parse_pg_properties(pg_refs, key=None):
         for k in pg:
             if isinstance(pg[k], list):
                 pg[k] = [o._moId for o in pg[k]]
+            elif k == "name":
+                pg[k] = unquote(pg[k])
     return dict([(o[key], o) for o in pgs if key in o]) if key else pgs
 
 
@@ -316,11 +317,17 @@ def parse_ds_properties(ds_refs, key=None):
 def parse_vm_properties(vm_refs, key=None):
     vms = pchm.parse_properties(vm_refs)
     for vm in vms:
-        (vm_disks, vm_nics) = get_vm_device_info(vm.pop('config.hardware.device'))
+        if not vm.get('summary.config.uuid'):
+            continue
+        (vm_disks, vm_nics) = get_vm_device_info(vm.pop('config.hardware.device', []))
         vm['disk'] = vm_disks
-        vm_nets = get_vm_nic_info(vm_nics, vm.pop('guest.net'))
+        vm_nets = get_vm_nic_info(vm_nics, vm.pop('guest.net', []))
         vm['network'] = vm_nets
-        vm['summary.runtime.host'] = vm['summary.runtime.host'].name
+        try:
+            vm['summary.runtime.host'] = vm['summary.runtime.host'].name
+        except:
+            vm['summary.runtime.host'] = ''
+
         vm['os_type'] = utils.get_os_type(vm.get('guest.guestId'))
     return dict([(o[key], o) for o in vms if key in o]) if key else vms
 
@@ -343,11 +350,10 @@ def get_vm_nic_info(net_adapters, vm_net_mo):
                 # if ipconfig.ipAddress.startswith('fe80'):
                 if len(ipconfig.ipAddress) > 15:  # len(xxx.xxx.xxx.xxx) == 15
                     continue
-                _ip_list.append(ipconfig.ipAddress)
-                _ip_list.append({'ip': ipconfig.ipAddress,
-                                 'prefix': ipconfig.prefixLength,
-                                 'netmask': utils.exchange_maskint(int(ipconfig.prefixLength))})
-            adapter['ipv4'] = ','.join(_ip_list)
+                _ip_list.append({'ip': ipconfig.ipAddress, 'prefix': ipconfig.prefixLength, 'netmask': utils.exchange_maskint(int(ipconfig.prefixLength))})
+                # adapter['prefix'] = ipconfig.prefixLength
+                # adapter['netmask'] = utils.exchange_maskint(int(ipconfig.prefixLength))
+            adapter['ipv4'] = _ip_list
             break
     return net_adapters
 
@@ -416,14 +422,16 @@ def get_vm_disk_info(disk_device, scsi_ctls_type):
     disk_info['file_name'] = disk_device.backing.fileName
     disk_info['capacityKB'] = disk_device.capacityInKB
     disk_info['disk_mode'] = disk_device.backing.diskMode
-    disk_info['uuid'] = disk_device.backing.uuid
     disk_info['contentid'] = disk_device.backing.contentId
     disk_info['ds_name'] = disk_device.backing.datastore.name
     disk_info['ds_moid'] = disk_device.backing.datastore._moId
+    disk_info['key'] = disk_device.key
     if isinstance(disk_device.backing,
                   vim.vm.device.VirtualDisk.RawDiskMappingVer1BackingInfo):
         is_raw_disk = True
         disk_type = 'raw'
+        disk_info['uuid'] = disk_device.backing.lunUuid
+        disk_info['compatibilityMode'] = disk_device.backing.compatibilityMode
     elif isinstance(disk_device.backing,
                     vim.vm.device.VirtualDisk.FlatVer2BackingInfo):
         is_raw_disk = False
@@ -433,6 +441,7 @@ def get_vm_disk_info(disk_device, scsi_ctls_type):
             disk_type = constants.DISK_TYPE_EAGER_ZEROED_THICK
         else:
             disk_type = constants.DISK_TYPE_PREALLOCATED
+        disk_info['uuid'] = disk_device.backing.uuid
     disk_info['disk_type'] = disk_type
     disk_info['is_raw'] = is_raw_disk
     return disk_info

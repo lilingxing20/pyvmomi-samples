@@ -4,7 +4,7 @@
 @@ function:
 """
 from __future__ import absolute_import
-
+import time
 from pyVmomi import vim
 
 from . import constants
@@ -79,11 +79,15 @@ def wait_for_task(task):
     """
     wait for a vCenter task to finish.
     """
-    while True:
-        if task.info.state == 'success':
-            return (0, task.info.result)
-        elif task.info.state == 'error':
-            return (1, task.info.result)
+    try:
+        while True:
+            if task.info.state == 'success':
+                return (0, task.info.result)
+            elif task.info.state == 'error':
+                return (1, task.info.result)
+            time.sleep(1)
+    except Exception as ex:
+        return (-1, "无法获取任务结果")
 
 
 def get_contains_obj(folder_obj):
@@ -307,12 +311,12 @@ def get_system_type(config_spec):
 
 
 def get_os_type(guest_id):
+    os_type = 'linux'
+    if guest_id in constants.WIN_OS_TYPES:
+        os_type = 'windows'
+    elif guest_id in constants.LINUX_OS_TYPES:
         os_type = 'linux'
-        if guest_id in constants.WIN_OS_TYPES:
-            os_type = 'windows'
-        elif guest_id in constants.LINUX_OS_TYPES:
-            os_type = 'linux'
-        return os_type
+    return os_type
 
 
 def find_vm_by_uuid(content, dc_name, uuid, is_instance_uuid=False):

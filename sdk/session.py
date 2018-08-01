@@ -8,9 +8,7 @@ import ssl
 from builtins import object
 
 from pyVim import connect
-from pyVmomi import vim
-# from pyVmomi import vmodl
-
+from pyVmomi import vmodl
 
 LOG = logging.getLogger(__name__)
 
@@ -33,8 +31,8 @@ class VcenterSession(object):
         self.user = vcenter_info.user
         self.pwd = vcenter_info.pwd
         self.port = vcenter_info.port
-        # connect vcenter server
-        self.si = self.auth_vcenter()
+        self.si = None
+        self.auth_vcenter()
 
     def auth_vcenter(self):
         try:
@@ -45,7 +43,13 @@ class VcenterSession(object):
                                                     pwd=self.pwd,
                                                     port=int(self.port),
                                                     sslContext=context)
-            atexit.register(connect.Disconnect, service_instance)
+            if not service_instance:
+                LOG.error("Could not connect to the specified host using "
+                          "specified username and password")
+            else:
+                self.si = service_instance
+
+            atexit.register(connect.Disconnect, self.si)
 
             LOG.info("The vCenter has authenticated.")
             LOG.debug("The vCenter server is {}!".format(self.host))
@@ -54,19 +58,18 @@ class VcenterSession(object):
             session_id = service_instance.content.sessionManager.currentSession.key
             LOG.debug("current session id: {}".format(session_id))
 
-            return service_instance
-
-        except vim.fault.InvalidLogin as error:
-            LOG.exception("Caught vmodl fault : " + error.msg)
         # except vmodl.MethodFault as error:
         #     LOG.exception("Caught vmodl fault : " + error.msg)
         except Exception as error:
             LOG.exception(error)
 
     def get_session_id(self):
-        if self.si and self.si.content.sessionManager.currentSession:
-            return self.si.content.sessionManager.currentSession.key
-        else:
+        try:
+            if self.si and self.si.content.sessionManager.currentSession:
+                return self.si.content.sessionManager.currentSession.key
+            else:
+                return None
+        except Exception as ex:
             return None
 
     def disconnect(self):
@@ -74,9 +77,12 @@ class VcenterSession(object):
             connect.Disconnect(self.si)
 
     def is_connected(self):
-        if self.si and self.si.content.sessionManager.currentSession:
-            return True
-        else:
+        try:
+            if self.si and self.si.content.sessionManager.currentSession:
+                return True
+            else:
+                return False
+        except Exception as ex:
             return False
 
 
