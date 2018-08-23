@@ -83,6 +83,7 @@ _VM = ['name',
        'guest.hostName',
        'guest.ipAddress',
        'guest.net',
+       'guest.toolsStatus',
        'guest.toolsRunningStatus',       # guestToolsExecutingScripts, guestToolsNotRunning, guestToolsRunning
        ]
 
@@ -120,7 +121,7 @@ def get_vc_properties(si, sync_flat=0):
         dc['hosts'] = []
         dc['clusters'] = []
         for c_moid in dc['hosts']:
-            if c_moid.startswith('domain-'):
+            if c_moid.startswith('domain-c'):
                 dc['clusters'].append(clusters[c_moid])
             else:
                 dc['hosts'].append(hosts[c_moid])
@@ -176,7 +177,7 @@ def get_vc_res_properties(si):
         dc['hosts'] = []
         dc['clusters'] = []
         for c_moid in dc['hosts']:
-            if c_moid.startswith('domain-'):
+            if c_moid.startswith('domain-c'):
                 dc['clusters'].append(clusters[c_moid])
             else:
                 dc['hosts'].append(hosts[c_moid])
@@ -240,7 +241,7 @@ def parse_dc_properties(dc_refs, key=None):
         dc['vm'] = [o._moId for o in frv_objs if o._moId.startswith('vm-')]
         fhc_objs = retrieve_obj_by_folder(dc['hostFolder'])
         dc['host'] = [o._moId for o in fhc_objs if o._moId.startswith('host-')]
-        dc['cluster'] = [o._moId for o in fhc_objs if o._moId.startswith('domain-')]
+        dc['cluster'] = [o._moId for o in fhc_objs if o._moId.startswith('domain-c')]
     return dict([(o[key], o) for o in dcs if key in o]) if key else dcs
 
 
@@ -251,6 +252,8 @@ def parse_cluster_properties(cluster_refs, key=None):
         for k in c:
             if isinstance(c[k], list):
                 c[k] = [o._moId for o in c[k]]
+            elif k == "name":
+                c[k] = unquote(c[k])
     return dict([(o[key], o) for o in clusters if key in o]) if key else clusters
 
 

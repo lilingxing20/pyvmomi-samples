@@ -66,11 +66,15 @@ def get_obj(content, vimtype, name, moid):
             if o._moId == moid:
                 obj = o
                 break
+        if not obj:
+            raise Exception("%s not found by moid: %s" % (str(vimtype), moid))
     elif name:
         for o in container.view:
             if o.name == name:
                 obj = o
                 break
+        if not obj:
+            raise Exception("%s not found by name: %s" % (str(vimtype), moid))
     container.Destroy()
     return obj
 
@@ -166,16 +170,22 @@ def get_host_moref(content, name=None, uuid=None, moid=None):
             if o._moId == moid:
                 host_obj = o
                 break
+        if not host_obj:
+            raise Exception("Host not found by moid: %s" % moid)
     elif uuid is not None:
         for o in container.view:
             if o.hardware.systemInfo.uuid == uuid:
                 host_obj = o
                 break
+        if not host_obj:
+            raise Exception("Host not found by uuid: %s" % uuid)
     elif name is not None:
         for o in container.view:
             if o.name == name:
                 host_obj = o
                 break
+        if not host_obj:
+            raise Exception("Host not found by name: %s" % name)
     container.Destroy()
     return host_obj
 
@@ -198,16 +208,22 @@ def get_datastore_moref(content, name=None, uuid=None, moid=None):
             if o._moId == moid:
                 ds_moref = o
                 break
+        if not ds_moref:
+            raise Exception("Datastore not found by moid: %s" % moid)
     elif uuid is not None:
         for o in container.view:
             if o.info.vmfs.uuid == uuid:
                 ds_moref = o
                 break
+        if not ds_moref:
+            raise Exception("Datastore not found by uuid: %s" % uuid)
     elif name is not None:
         for o in container.view:
             if o.name == name:
                 ds_moref = o
                 break
+        if not ds_moref:
+            raise Exception("Datastore not found by name: %s" % name)
     container.Destroy()
     return ds_moref
 
@@ -224,6 +240,8 @@ def get_vm_moref(content, name=None, uuid=None, moid=None):
     vm_obj = None
     if uuid is not None:
         vm_obj = find_vm_by_uuid(content, None, uuid)
+        if not vm_obj:
+            raise Exception("Vm not found by uuid: %s" % uuid)
     else:
         container = content.viewManager.CreateContainerView(content.rootFolder,
                                                             [vim.VirtualMachine],
@@ -233,11 +251,15 @@ def get_vm_moref(content, name=None, uuid=None, moid=None):
                 if o._moId == moid:
                     vm_obj = o
                     break
+            if not vm_obj:
+                raise Exception("Vm not found by moid: %s" % moid)
         elif name is not None:
             for o in container.view:
                 if o.name == name:
                     vm_obj = o
                     break
+            if not vm_obj:
+                raise Exception("Vm not found by name: %s" % name)
         container.Destroy()
     return vm_obj
 

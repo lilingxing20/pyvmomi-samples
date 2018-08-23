@@ -50,7 +50,8 @@ def vm_info_json(vm_moref):
     vm_details['sys_type'] = utils.get_system_type(vm_moref.config)
     vm_details["moid"] = vm_moref._moId
 
-    (vm_disks, net_adapters) = get_vm_device_info(vm_moref.config.hardware.device)
+    vm_disks = get_vm_disk_devices_info(vm_moref.config.hardware.device)
+    net_adapters = get_vm_net_devices_info(vm_moref.config.hardware.device)
     vm_details['disk'] = vm_disks
     vm_nets = get_vm_nic_info(net_adapters, vm_moref.guest.net)
     vm_details['network'] = vm_nets
@@ -103,7 +104,7 @@ def get_vm_nic_info(net_adapters, vm_net_mo):
     return net_adapters
 
 
-def get_vm_device_info(virtual_devices):
+def get_vm_controllers_type_info(virtual_devices):
     """
     To json information for a particular virtual machine disk
     @ virtual_devices: vim.vm.device.VirtualDevice[]
@@ -123,8 +124,6 @@ def get_vm_device_info(virtual_devices):
     @@  vim.vm.device.VirtualFloppy:             key>=8000
     @@  vim.vm.device.VirtualVMCIDevice:         key>=12000
     """
-    disks_info = []
-    nets_info = []
     scsi_ctls_type = {}
     for dev_moref in virtual_devices:
         if dev_moref.key in [1000, 1001, 1002, 1003]:
@@ -138,18 +137,40 @@ def get_vm_device_info(virtual_devices):
                 scsi_ctls_type[dev_moref.key] = 'BusLogic'
             else:
                 scsi_ctls_type[dev_moref.key] = None
+    return scsi_ctls_type
+
+
+def get_vm_disk_devices_info(virtual_devices):
+    scsi_ctls_type = get_vm_controllers_type_info(virtual_devices)
+    disks_info = []
     for device_moref in virtual_devices:
         if isinstance(device_moref, vim.vm.device.VirtualDisk):
             disk_info = get_vm_disk_info(device_moref, scsi_ctls_type)
             disks_info.append(disk_info)
-        elif device_moref.key >= 4000 and device_moref.key < 4100:
+    return disks_info
+
+
+def get_vm_disk_device_info(virtual_devices, vdev_node):
+    scsi_ctls_type = get_vm_controllers_type_info(virtual_devices)
+    disk_info = {}
+    for device_moref in virtual_devices:
+        if isinstance(device_moref, vim.vm.device.VirtualDisk):
+            v_n = get_vdev_node(device_moref.key)
+            if v_n != vdev_node:
+                continue
+            disk_info = get_vm_disk_info(device_moref, scsi_ctls_type)
+    return disk_info
+
+
+def get_vm_net_devices_info(virtual_devices):
+    nets_info = []
+    for device_moref in virtual_devices:
+        if device_moref.key >= 4000 and device_moref.key < 4100:
             # Retrieve the virtual machine before one hundred a network adapter,
             # but the virtual machine may have more
             net_info = get_vm_net_info(device_moref)
             nets_info.append(net_info)
-        else:
-            continue
-    return (disks_info, nets_info)
+    return nets_info
 
 
 def get_vm_disk_info(disk_device, scsi_ctls_type):
@@ -157,11 +178,9 @@ def get_vm_disk_info(disk_device, scsi_ctls_type):
     """
     disk_info = {}
     disk_info['label'] = disk_device.deviceInfo.label
-    scsi_z1 = old_div((disk_device.key - 2000), 16)
-    scsi_z2 = (disk_device.key - 2000) % 16
-    # unitNumber 7 reserved for scsi controller
-    scsi_z2 += 1 if scsi_z2 >= 7 else 0
-    disk_info['scsi_name'] = "SCSI(%d:%d)" % (scsi_z1, scsi_z2)
+    vdev_node = get_vdev_node(disk_device.key)
+    disk_info['vdev_node'] = vdev_node
+    disk_info['scsi_name'] = "SCSI(%s)" % vdev_node
     disk_info['scsi_type'] = scsi_ctls_type.get(disk_device.controllerKey)
     disk_info['file_name'] = disk_device.backing.fileName
     disk_info['capacityKB'] = disk_device.capacityInKB
@@ -222,3 +241,11 @@ def get_vm_net_info(net_device):
     net_info['ipv4'] = ''
     net_info['prefix'] = ''
     return net_info
+
+
+def get_vdev_node(disk_device_key):
+    scsi_z1 = old_div((disk_device_key - 2000), 16)
+    scsi_z2 = (disk_device_key - 2000) % 16
+    # unitNumber 7 reserved for scsi controller
+    scsi_z2 += 1 if scsi_z2 >= 7 else 0
+    return "%d:%d" % (scsi_z1, scsi_z2)

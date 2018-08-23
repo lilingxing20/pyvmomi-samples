@@ -65,7 +65,7 @@ class VMwareClient(object):
         # get datacenter_obj
         datacenter_obj = utils.get_datacenter_moref(self.content, name=datacenter_name)
         if not datacenter_obj:
-            raise "Not found datacenter!"
+            raise Exception("Not found datacenter!")
 
         # get vm dest folder obj
         destfolder = None
@@ -87,19 +87,19 @@ class VMwareClient(object):
         # get template_obj
         template_obj = utils.get_vm_moref(self.content, name=template_name, uuid=None)
         if not template_obj:
-            raise "Not found template!"
+            raise Exception("Not found template!")
 
         destfolder = self.get_dest_folder(datacenter_name, vmfolder_name)
 
         # get vm dest datastore obj
         datastore_moref = utils.get_datastore_moref(self.content, name=datastore_name)
         if not datastore_moref:
-            raise "Not found datastore!"
+            raise Exception("Not found datastore!")
 
         # get cluster_obj if none git the first one
         cluster_obj = utils.get_cluster_moref(self.content, name=cluster_name)
         if not cluster_obj:
-            raise "Not found cluster!"
+            raise Exception("Not found cluster!")
 
         # get esxi host obj
         esxi_moref = None
@@ -233,7 +233,7 @@ class VMwareClient(object):
             ret_status = -1
         return ret_status
 
-    def get_task_result_by_key(self, task_key, task_type='clone'):
+    def get_task_result_by_key(self, task_key):
         """ get task info
         """
         task_result = {}
@@ -251,8 +251,6 @@ class VMwareClient(object):
             # No wait, waiting lead to apscheduler job num exceed maximum
             # (status, result) = utils.wait_for_task(task)
             result = task_mo.info.result
-            if task_type != 'clone':
-                result = task_mo.info.entity
             vm_detail = None
             if result and isinstance(result, vim.VirtualMachine):
                 vm_detail = vm.vm_info_json(result)
@@ -269,31 +267,80 @@ class VMwareClient(object):
                 task_result["error"] = task_mo.info.error.msg
         return task_result
 
-    def attach_disk(self, vm_name, vdev_node, disk):
-        """ attach disk to vm
-        disk: {'ds_name': 'DS5020_1', 'ds_moid': 'datastore-1415', 'disk_type': 'eagerZeroedThick', 'disk_size': 1, 'scsi_type': 'LsiLogicSAS', 'disk_file_path': ''}
+    def get_build_task_state(self, task_key):
+        """ get task info
         """
-        ds_moref = utils.get_datastore_moref(self.content, moid=disk['ds_moid'])
-        # vm_moref = utils.get_vm_moref(self.content, uuid=vm_uuid)
-        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
+        task_result = {}
+        try:
+            recent_tasks = self.content.taskManager.recentTask
+            for task_mo in recent_tasks:
+                if task_key != task_mo.info.key:
+                    continue
+                task_state = task_mo.info.state
+                task_result["state"] = task_state
+                task_result["progress"] = task_mo.info.progress
+                if task_state == 'success':
+                    task_result["vm"] = vm.vm_info_json(task_mo.info.entity)
+                    task_result["progress"] = 100
+                if task_mo.info.error:
+                    task_result["error"] = task_mo.info.error.msg
+                    task_result["progress"] = 100
+                break
+        except Exception as error:
+            LOG.exception("Caught fault : " + error)
+        return task_result
 
-        config_spec = vim.vm.ConfigSpec()
-        vmops.vm_add_disk(vm_moref, config_spec,
-                          vdev_node,
-                          ds_moref,
-                          disk['disk_type'],
-                          disk['disk_size'],
-                          disk.get('disk_file_path'))
+    def get_attach_disk_task_state(self, task_key, vdev_node=None):
+        """ get attach disk task info
+        """
+        task_result = {}
+        try:
+            recent_tasks = self.content.taskManager.recentTask
+            for task_mo in recent_tasks:
+                if task_key != task_mo.info.key:
+                    continue
+                task_state = task_mo.info.state
+                task_result["state"] = task_state
+                task_result["progress"] = task_mo.info.progress
+                if task_state == 'success':
+                    vm_obj = task_mo.info.entity
+                    if vdev_node and vm_obj:
+                        task_result["disk"] = vm.get_vm_disk_device_info(vm_obj.config.hardware.device,
+                                                                         vdev_node)
+                    task_result["progress"] = 99
+                if task_mo.info.error:
+                    task_result["error"] = task_mo.info.error.msg
+                    task_result["progress"] = 99
+                break
+        except Exception as error:
+            task_result = {"progress": 99, "error": str(error)}
+            LOG.exception("Caught fault : " + error)
+        return task_result
+
+    def vm_extra_config(self, vm_moid, options):
+        """ add or update vm extra configure
+        """
+        vm_moref = utils.get_vm_moref(self.content, moid=vm_moid)
+        config_spec = vmops.create_extra_config_spec(options)
         task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
         return task_moref.info.key
 
-    def dettach_disk(self, vm_name, disk_file_path):
+    def attach_vmdk_sharing_disk(self, vm_moid, disk):
+        """ attach disk to vm
+        disk: {'ds_moid': 'datastore-1415', 'disk_size': 1, 'vdev_node': '1:0', 'disk_path': ''}
+        """
+        vm_moref = utils.get_vm_moref(self.content, moid=vm_moid)
+        ds_moref = utils.get_datastore_moref(self.content, moid=disk['ds_moid'])
+        config_spec = vmops.vm_add_vmdk_disk(vm_moref, ds_moref, disk, sharing=True)
+        task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
+        return task_moref.info.key
+
+    def dettach_disk(self, vm_moid, disk_file_path):
         """ attach disk from vm
         disk_file_path: '[DS5020_1] test_004/test_004_2.vmdk'
         """
-        vm_moref = utils.get_vm_moref(self.content, name=vm_name)
-        config_spec = vim.vm.ConfigSpec()
-        vmops.vm_remove_disk(vm_moref, config_spec, disk_file_path)
+        vm_moref = utils.get_vm_moref(self.content, moid=vm_moid)
+        config_spec = vmops.vm_remove_vmdk_disk(vm_moref, disk_file_path)
         task_moref = task_utils.reconfig_vm_task(vm_moref, config_spec)
         return task_moref.info.key
 

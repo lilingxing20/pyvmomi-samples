@@ -13,18 +13,24 @@ DISK_TYPE_EAGER_ZEROED_THICK = 'eagerZeroedThick'
 
 
 NIC_ADAPTER_TYPES = {
-        'E1000': vim.vm.device.VirtualE1000,
-        'E1000E': vim.vm.device.VirtualE1000e,
-        'VMXNET3': vim.vm.device.VirtualVmxnet3,
-        }
+    'E1000': vim.vm.device.VirtualE1000,
+    'E1000E': vim.vm.device.VirtualE1000e,
+    'VMXNET3': vim.vm.device.VirtualVmxnet3,
+}
 
 SCSI_CONTROLLER_TYPES = {
-        'BusLogic': vim.vm.device.VirtualBusLogicController,
-        'LsiLogic': vim.vm.device.VirtualLsiLogicController,
-        'LsiLogicSAS': vim.vm.device.VirtualLsiLogicSASController,
-        'ParaVirtual': vim.vm.device.ParaVirtualSCSIController,
-        }
+    'BusLogic': vim.vm.device.VirtualBusLogicController,
+    'LsiLogic': vim.vm.device.VirtualLsiLogicController,
+    'LsiLogicSAS': vim.vm.device.VirtualLsiLogicSASController,
+    'ParaVirtual': vim.vm.device.ParaVirtualSCSIController,
+}
 
+SCSI_CONTROLLER_NAMES = {
+        'vim.vm.device.VirtualBusLogicController': 'BusLogic',
+        'vim.vm.device.VirtualLsiLogicController': 'LsiLogic',
+        'vim.vm.device.VirtualLsiLogicSASController': 'LsiLogicSAS',
+        'vim.vm.device.ParaVirtualSCSIController': 'ParaVirtual',
+        }
 
 LINUX_OS_TYPES = set([
     'centos64Guest',

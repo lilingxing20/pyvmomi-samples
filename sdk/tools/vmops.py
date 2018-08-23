@@ -87,7 +87,7 @@ def network_customization(vm_net):
     adaptermap_custom = []
     for net in vm_net:
         adaptermap = vim.vm.customization.AdapterMapping()
-        if net:
+        if net and net.get('ip'):
             fixedip = vim.vm.customization.FixedIp(ipAddress=net.get('ip'))
             adaptermap.adapter = vim.vm.customization.IPSettings(ip=fixedip,
                                                                  subnetMask=net.get('netmask'),
@@ -106,7 +106,7 @@ def dns_customization(dnslist):
     return vim.vm.customization.GlobalIPSettings(dnsServerList=dnslist)
 
 
-def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGROUP', passwd='123456', sys_type='linux'):
+def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGROUP', passwd='password01!', sys_type='linux'):
     """
     hostname setting
     """
@@ -139,25 +139,31 @@ def sysprep_customization(hostname, domain='localhost.domain', workgroup='WORKGR
 
 
 # v1
-def vm_add_disk(vm_moref, config_spec, vdev_node, ds_moref, disk_type, disk_size, disk_file_path=None):
+def vm_add_vmdk_disk(vm_moref, ds_moref, disk, sharing=False):
+    """ add vmdk disk for vm
     """
-    """
-    (c_bus_number, d_unit_number) = vdev_node.split(':')
+    config_spec = vim.vm.ConfigSpec()
     disk_spec = vim.vm.device.VirtualDeviceSpec()
 
     # check or create disk controller dev
+    (c_bus_number, d_unit_number) = disk['vdev_node'].split(':')
     scsi_controllers = get_vm_scsi_controller_dev(vm_moref)
-    (controller, controller_spec) = _check_or_add_controller(scsi_controllers, int(c_bus_number),
-                                                             scsi_type='LsiLogicSAS',
-                                                             sharedbus_mode='physicalSharing')
+    (controller, controller_spec) = _check_or_add_controller(scsi_controllers, int(c_bus_number))
     # create disk dev
     disk_spec.operation = "add"
     disk_spec.device = vim.vm.device.VirtualDisk()
     disk_spec.device.backing = vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
     # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/device/VirtualDiskOption/DiskMode.rst
-    disk_spec.device.backing.diskMode = 'persistent'
-    if disk_file_path:
-        disk_spec.device.backing.fileName = disk_file_path
+    disk_spec.device.backing.diskMode = 'independent_persistent'
+    # if esxi_version < 6.0
+    #     config_spec = vmdk_share_disk_extra_config(config_spec, disk['vdev_node'])
+    # elif esxi_version >= 6.0
+    if sharing:
+        disk_spec.device.backing.sharing = 'sharingMultiWriter'
+    # else:
+    #     disk_spec.device.backing.sharing = 'sharingNone'
+    if disk.get('disk_path'):
+        disk_spec.device.backing.fileName = disk['disk_path']
     else:
         disk_spec.fileOperation = "create"
     disk_spec.device.unitNumber = int(d_unit_number)
@@ -165,20 +171,22 @@ def vm_add_disk(vm_moref, config_spec, vdev_node, ds_moref, disk_type, disk_size
     disk_spec.device.controllerKey = controller.key
     disk_spec.device.backing.datastore = ds_moref
 
-    # set disk type
-    _set_disk_type(disk_spec, disk_type)
+    # set disk type: eagerZeroedThick
+    _set_disk_type(disk_spec, 'eagerZeroedThick')
 
     # set disk size
-    disk_spec.device.capacityInKB = int(disk_size) * 1024 * 1024
+    disk_spec.device.capacityInKB = int(disk['disk_size']) * 1024 * 1024
 
     if controller_spec:
         config_spec.deviceChange.extend([controller_spec])
     config_spec.deviceChange.extend([disk_spec])
+    return config_spec
 
 
-def vm_remove_disk(vm_moref, config_spec, disk_file_path):
+def vm_remove_vmdk_disk(vm_moref, disk_file_path):
     """ remove disk device from vm
     """
+    config_spec = vim.vm.ConfigSpec()
     disk_devs = get_vm_disk_dev(vm_moref)
     for dev in disk_devs:
         if dev.backing.fileName == disk_file_path:
@@ -186,6 +194,7 @@ def vm_remove_disk(vm_moref, config_spec, disk_file_path):
             controller_unit_number = dev.controllerKey - 1000
             vm_remove_scsi_controller(vm_moref, config_spec, controller_unit_number)
             break
+    return config_spec
 
 
 # v2
@@ -202,7 +211,6 @@ def create_attach_disks_config_spec(vm_moref, disks):
         (c_bus_number, d_unit_number) = disk['vdev_node'].split(':')
         # check or create disk controller dev
         (controller, controller_spec) = _check_or_add_controller(scsi_controllers, int(c_bus_number),
-                                                                 scsi_type='LsiLogicSAS',
                                                                  sharedbus_mode='physicalSharing')
         disk_spec = vim.vm.device.VirtualDeviceSpec()
         disk_spec.operation = "add"
@@ -219,21 +227,21 @@ def create_attach_disks_config_spec(vm_moref, disks):
             disk_spec.device.backing.compatibilityMode = 'physicalMode'
             ## disk_spec.device.backing.diskMode = 'independent_persistent'
             ## disk_spec.device.backing.lunUuid = disk.get('lun_uuid')
-            if disk.get('file_path'):
-                disk_spec.device.backing.fileName = disk['file_path']
+            if disk.get('disk_path'):
+                disk_spec.device.backing.fileName = disk['disk_path']
             else:
                 disk_spec.fileOperation = "create"
                 disk_spec.device.backing.deviceName = disk['device_name']
         else:
             # create vmdk disk backing info
             disk_spec.device.backing = vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
-            disk_spec.device.backing.diskMode = 'persistent'
+            disk_spec.device.backing.diskMode = 'independent_persistent'
             # set disk type
             _set_disk_type(disk_spec, disk['disk_type'])
             # set disk size
             disk_spec.device.capacityInKB = int(disk['disk_size']) * 1024 * 1024
-            if disk.get('file_path'):
-                disk_spec.device.backing.fileName = disk['file_path']
+            if disk.get('disk_path'):
+                disk_spec.device.backing.fileName = disk['disk_path']
             else:
                 disk_spec.fileOperation = "create"
 
@@ -255,7 +263,7 @@ def create_remove_disks_config_spec(vm_moref, disks):
     controller_dev_dict = {}
 
     for disk in disks:
-        disk_file_path = disk['file_path']
+        disk_file_path = disk['disk_path']
         for dev in disk_devs:
             if dev.backing.fileName == disk_file_path:
                 vm_remove_virtual_device(config_spec, dev, file_operation="destroy")
@@ -330,29 +338,29 @@ def _config_vm_disk(scsi_controllers, devs, disks):
         else:
             disk_size = disk['disk_size']
             disk_type = disk['disk_type']
-            scsi_type = disk.get('scsi_type')
-            available_vdev_node = disk.get('vdev_node')
-            if not available_vdev_node:
-                available_vdev_node = _get_available_vdev_node(devs, allocated_vdev_node)
-                allocated_vdev_node.append(available_vdev_node)
-            (c_bus_number, d_unit_number) = available_vdev_node.split(':')
-            (controller, controller_spec) = _get_or_add_controller(scsi_controllers, int(c_bus_number), scsi_type)
-            controller_spec_list += [controller_spec] if controller_spec else []
             if dev is None:
                 # add
                 disk_spec.fileOperation = "create"
-                disk_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
+                disk_spec.operation = "add"
                 disk_spec.device = vim.vm.device.VirtualDisk()
                 disk_spec.device.backing = vim.vm.device.VirtualDisk.FlatVer2BackingInfo()
                 disk_spec.device.backing.diskMode = 'persistent'
                 disk_spec.device.backing.fileName = "[%s]" % disk.get('ds_name', '')
+                # set scsi vdev node
+                available_vdev_node = disk.get('vdev_node')
+                if not available_vdev_node:
+                    available_vdev_node = _get_available_vdev_node(devs, allocated_vdev_node)
+                    allocated_vdev_node.append(available_vdev_node)
+                (c_bus_number, d_unit_number) = available_vdev_node.split(':')
+                (controller, controller_spec) = _check_or_add_controller(scsi_controllers, int(c_bus_number))
+                controller_spec_list += [controller_spec] if controller_spec else []
+                disk_spec.device.unitNumber = int(d_unit_number)
+                disk_spec.device.controllerKey = controller.key
             else:
                 # edit
-                disk_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
+                disk_spec.operation = "edit"
                 disk_spec.device = dev
             disk_spec.device.backing.datastore = disk['ds_moref']
-            disk_spec.device.unitNumber = int(d_unit_number)
-            disk_spec.device.controllerKey = controller.key
             # update disk type
             _set_disk_type(disk_spec, disk_type)
             # update disk size
@@ -383,74 +391,80 @@ def _get_available_vdev_node(devs, allocated_vdev_node):
     used_vdev_node = ["%d:%d" % (dev.controllerKey-1000, dev.unitNumber) for dev in devs if dev]
     available_vdev_node = [n for n in all_vdev_node if n not in used_vdev_node and n not in allocated_vdev_node]
     if len(available_vdev_node) < 1:
-        raise "No SCSI controllers are available !"
+        raise Exception("No SCSI controllers are available !")
     return available_vdev_node[0]
 
-
-def _get_or_add_controller(scsi_controllers, bus_number, scsi_type=None):
-    f_controller = None
-    scsi_controller = None
-    controller_spec = vim.vm.device.VirtualDeviceSpec()
-    for c in scsi_controllers:
-        if c.busNumber == bus_number:
-            f_controller = c
-    if f_controller:
-        # LOG.warning('Currently, SCSI controller type editing function is not provided.')
-        new_scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_type)
-        if new_scsi_type:
-            controller_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
-            controller_spec.device = new_scsi_type()
-            controller_spec.device.key = f_controller.key
-            controller_spec.device.controllerKey = f_controller.controllerKey
-            controller_spec.device.unitNumber = f_controller.unitNumber
-            controller_spec.device.busNumber = f_controller.busNumber
-            controller_spec.device.hotAddRemove = f_controller.hotAddRemove
-            controller_spec.device.sharedBus = f_controller.sharedBus
-            controller_spec.device.scsiCtlrUnitNumber = f_controller.scsiCtlrUnitNumber
-            controller_spec.device.slotInfo = f_controller.slotInfo
-            scsi_controller = controller_spec.device
-        else:
-            scsi_controller = f_controller
-            controller_spec = None
-    else:
-        LOG.info('Add SCSI controller.')
-        controller_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
-        default_scsi_type = constants.SCSI_CONTROLLER_TYPES['LsiLogicSAS']
-        new_scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_type, default_scsi_type)
-        controller_spec.device = new_scsi_type()
-        controller_spec.device.key = 1000 + bus_number
-        controller_spec.device.controllerKey = 100
-        controller_spec.device.unitNumber = 3 + bus_number
-        controller_spec.device.busNumber = bus_number
-        controller_spec.device.hotAddRemove = True
-        controller_spec.device.sharedBus = vim.vm.device.VirtualSCSIController.Sharing('noSharing')
-        controller_spec.device.scsiCtlrUnitNumber = 7
-        # controller_spec.device.slotInfo = vim.vm.device.VirtualDevice.PciBusSlotInfo()
-        scsi_controller = controller_spec.device
-        # scsi_controllers.append(scsi_controller)
-    return (scsi_controller, controller_spec)
-
+#
+# def _get_or_add_controller(scsi_controllers, bus_number, scsi_type=None):
+#     f_controller = None
+#     scsi_controller = None
+#     controller_spec = vim.vm.device.VirtualDeviceSpec()
+#     for c in scsi_controllers:
+#         if c.busNumber == bus_number:
+#             f_controller = c
+#     if f_controller:
+#         LOG.warning('Currently, SCSI controller type editing function is not provided.')
+#         #new_scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_type)
+#         # if new_scsi_type:
+#         #    controller_spec.operation = "edit"
+#         #    controller_spec.device = new_scsi_type()
+#         #    controller_spec.device.key = f_controller.key
+#         #    controller_spec.device.controllerKey = f_controller.controllerKey
+#         #    controller_spec.device.unitNumber = f_controller.unitNumber
+#         #    controller_spec.device.busNumber = f_controller.busNumber
+#         #    controller_spec.device.hotAddRemove = f_controller.hotAddRemove
+#         #    controller_spec.device.sharedBus = f_controller.sharedBus
+#         #    controller_spec.device.scsiCtlrUnitNumber = f_controller.scsiCtlrUnitNumber
+#         #    controller_spec.device.slotInfo = f_controller.slotInfo
+#         #    scsi_controller = controller_spec.device
+#         # else:
+#         scsi_controller = f_controller
+#         controller_spec = None
+#     else:
+#         LOG.info('Add SCSI controller.')
+#         controller_spec.operation = 'add'
+#         default_scsi_type = constants.SCSI_CONTROLLER_TYPES['LsiLogicSAS']
+#         new_scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_type, default_scsi_type)
+#         controller_spec.device = new_scsi_type()
+#         controller_spec.device.key = 1000 + bus_number
+#         controller_spec.device.controllerKey = 100
+#         controller_spec.device.unitNumber = 3 + bus_number
+#         controller_spec.device.busNumber = bus_number
+#         controller_spec.device.hotAddRemove = True
+#         controller_spec.device.sharedBus = vim.vm.device.VirtualSCSIController.Sharing('noSharing')
+#         controller_spec.device.scsiCtlrUnitNumber = 7
+#         # controller_spec.device.slotInfo = vim.vm.device.VirtualDevice.PciBusSlotInfo()
+#         scsi_controller = controller_spec.device
+#         # scsi_controllers.append(scsi_controller)
+#     return (scsi_controller, controller_spec)
+#
 
 def _check_or_add_controller(scsi_controllers, bus_number,
-                             scsi_type='LsiLogicSAS',
                              sharedbus_mode='noSharing'):
     """ check scsi controller device, or add controller device
-    scsi_type: BusLogic, LsiLogic, LsiLogicSAS, ParaVirtual
     sharedBus: noSharing, virtualSharing, physicalSharing
     """
     f_controller = None
+    scsi_controller0_type = None
     scsi_controller = None
     controller_spec = None
     for c in scsi_controllers:
         if c.busNumber == bus_number:
             f_controller = c
-    scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_type)
+        if c.key == 1000:
+            # BusLogic, LsiLogic, LsiLogicSAS, ParaVirtual
+            scsi_controller0_type = constants.SCSI_CONTROLLER_NAMES[c.__class__.__name__]
     if not f_controller:
+        if not scsi_controller0_type:
+            raise Exception("Not found SCSI controller 0 !")
+
+        scsi_type = constants.SCSI_CONTROLLER_TYPES.get(scsi_controller0_type)
         LOG.info('Add SCSI controller.')
         if not scsi_type:
-            raise "scsi controller type error!"
+            raise Exception("scsi controller type error !")
+
         controller_spec = vim.vm.device.VirtualDeviceSpec()
-        controller_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
+        controller_spec.operation = 'add'
         controller_spec.device = scsi_type()
         controller_spec.device.key = 1000 + bus_number
         controller_spec.device.controllerKey = 100
@@ -463,8 +477,6 @@ def _check_or_add_controller(scsi_controllers, bus_number,
         scsi_controllers.append(scsi_controller)
     else:
         scsi_controller = f_controller
-        if not isinstance(f_controller, scsi_type):
-            LOG.warning('The current SCSI controller type does not match !')
         if sharedbus_mode != f_controller.sharedBus:
             LOG.warning('The current SCSI controller bus share mode does not match !')
     return (scsi_controller, controller_spec)
@@ -490,7 +502,7 @@ def _config_vm_nic(devs, nets):
         nic_spec_list.append(nic_spec)
         if net is None:
             # remove
-            nic_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.remove
+            nic_spec.operation = "remove"
             nic_spec.device = dev
         else:
             pg_moid = net['pg_moid']
@@ -500,7 +512,7 @@ def _config_vm_nic(devs, nets):
             is_pg_dvsp = isinstance(pg_moref, vim.dvs.DistributedVirtualPortgroup)
             if dev is None:
                 # add
-                nic_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.add
+                nic_spec.operation = 'add'
                 default_adapter_type = constants.NIC_ADAPTER_TYPES.get('VMXNET3')
                 new_adapter_type = constants.NIC_ADAPTER_TYPES.get(adapter_type, default_adapter_type)
                 nic_spec.device = new_adapter_type()
@@ -517,7 +529,7 @@ def _config_vm_nic(devs, nets):
                     nic_spec.device.backing.deviceName = pg_moref.name
             else:
                 is_backing_dvsp = isinstance(dev.backing, vim.vm.device.VirtualEthernetCard.DistributedVirtualPortBackingInfo)
-                nic_spec.operation = vim.vm.device.VirtualDeviceSpec.Operation.edit
+                nic_spec.operation = "edit"
                 nic_spec.device = dev
                 if is_backing_dvsp:
                     if dev.backing.port.portgroupKey == pg_moid:
@@ -526,6 +538,10 @@ def _config_vm_nic(devs, nets):
                         LOG.info('There is no need to modify the portgroup.')
                     elif is_pg_dvsp:
                         # edit dvsp
+                        #nic_spec.device.backing.port.portgroupKey = pg_moref.key
+                        #nic_spec.device.backing.port.switchUuid = pg_moref.config.distributedVirtualSwitch.uuid
+                        nic_spec.device.backing = vim.vm.device.VirtualEthernetCard.DistributedVirtualPortBackingInfo()
+                        nic_spec.device.backing.port = vim.dvs.PortConnection()
                         nic_spec.device.backing.port.portgroupKey = pg_moref.key
                         nic_spec.device.backing.port.switchUuid = pg_moref.config.distributedVirtualSwitch.uuid
                     else:
@@ -573,68 +589,88 @@ def get_vm_nic_adapter_dev(vm_moref):
             if isinstance(dev, vim.vm.device.VirtualEthernetCard)]
 
 
-def create_configspec(num_cpu=1, num_core=1, memoryMB=512):
-    """
-    vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
-    vim.vm.device.VirtualDiskSpec()
-    """
-    # update cpu and memory config
+# def create_configspec(num_cpu=1, num_core=1, memoryMB=512):
+#     """
+#     vim.vm.ConfigSpec(numCPUs=1, memoryMB=mem)
+#     vim.vm.device.VirtualDiskSpec()
+#     """
+#     # update cpu and memory config
+#     config_spec = vim.vm.ConfigSpec()
+#     # config_spec.memoryHotAddEnabled = True
+#     # config_spec.cpuHotAddEnabled = True
+#     # config_spec.cpuHotRemoveEnabled = True
+#     config_spec.numCPUs = num_cpu
+#     config_spec.numCoresPerSocket = num_core
+#     config_spec.memoryMB = memoryMB
+#     config_spec.uuid = str(uuid.uuid1())
+#     return config_spec
+
+
+# def create_relospec(esxi_moref, res_pool_moref, datastore_moref, disk_spec_list):
+#     """
+#     Create relocate spec.
+#     Disk Transform Rule:
+#         [thin, preallocated, eagerZeroedThick] -> thin
+#         [thin, preallocated]                   -> preallocated
+#         [thin, preallocated, eagerZeroedThick] -> eagerZeroedThick
+#     """
+#     # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/RelocateSpec.rst
+#     relospec = vim.vm.RelocateSpec()
+#     relospec.datastore = datastore_moref
+#     relospec.pool = res_pool_moref
+#     relospec.host = esxi_moref
+
+#     # if disk_type == constants.DISK_TYPE_THIN or disk_type == constants.DISK_TYPE_PREALLOCATED:
+#     #     # relospec.transform = 'sparse'
+#     #     relospec.transform = vim.vm.RelocateSpec.Transformation('sparse')
+#     # elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
+#     #     # relospec.transform = 'flat'
+#     #     relospec.transform = vim.vm.RelocateSpec.Transformation('flat')
+
+#     for disk_spec in disk_spec_list:
+#         if disk_spec.operation != 'edit':
+#             continue
+#         disk_locator = vim.vm.RelocateSpec.DiskLocator()
+#         disk_locator.diskId = disk_spec.device.key
+#         disk_locator.diskBackingInfo = disk_spec.device.backing
+#         if disk_spec.device.backing.datastore:
+#             disk_locator.datastore = disk_spec.device.backing.datastore
+#         relospec.disk.append(disk_locator)
+#     return relospec
+
+
+# def create_clonespec(relospec, customspec, config_spec, poweron, is_template):
+#     """
+#     Create clone spec
+#     """
+#     clonespec = vim.vm.CloneSpec()
+#     clonespec.location = relospec
+#     clonespec.customization = customspec
+#     clonespec.config = config_spec
+#     clonespec.powerOn = poweron
+#     clonespec.template = is_template
+#     return clonespec
+
+
+def create_extra_config_spec(options):
     config_spec = vim.vm.ConfigSpec()
-    # config_spec.memoryHotAddEnabled = True
-    # config_spec.cpuHotAddEnabled = True
-    # config_spec.cpuHotRemoveEnabled = True
-    config_spec.numCPUs = num_cpu
-    config_spec.numCoresPerSocket = num_core
-    config_spec.memoryMB = memoryMB
-    config_spec.uuid = str(uuid.uuid1())
+    for k, v in options.items():
+        opt = vim.option.OptionValue()
+        opt.key = k
+        opt.value = v
+        config_spec.extraConfig.append(opt)
     return config_spec
 
 
-def create_relospec(esxi_moref, res_pool_moref, datastore_moref, disk_spec_list):
-    """
-    Create relocate spec.
-    Disk Transform Rule:
-        [thin, preallocated, eagerZeroedThick] -> thin
-        [thin, preallocated]                   -> preallocated
-        [thin, preallocated, eagerZeroedThick] -> eagerZeroedThick
-    """
-    # https://github.com/vmware/pyvmomi/blob/master/docs/vim/vm/RelocateSpec.rst
-    relospec = vim.vm.RelocateSpec()
-    relospec.datastore = datastore_moref
-    relospec.pool = res_pool_moref
-    relospec.host = esxi_moref
-
-    # if disk_type == constants.DISK_TYPE_THIN or disk_type == constants.DISK_TYPE_PREALLOCATED:
-    #     # relospec.transform = 'sparse'
-    #     relospec.transform = vim.vm.RelocateSpec.Transformation('sparse')
-    # elif disk_type == constants.DISK_TYPE_EAGER_ZEROED_THICK:
-    #     # relospec.transform = 'flat'
-    #     relospec.transform = vim.vm.RelocateSpec.Transformation('flat')
-
-    for disk_spec in disk_spec_list:
-        if disk_spec.operation != 'edit':
-            continue
-        disk_locator = vim.vm.RelocateSpec.DiskLocator()
-        disk_locator.diskId = disk_spec.device.key
-        disk_locator.diskBackingInfo = disk_spec.device.backing
-        if disk_spec.device.backing.datastore:
-            disk_locator.datastore = disk_spec.device.backing.datastore
-        relospec.disk.append(disk_locator)
-    return relospec
-
-
-def create_clonespec(relospec, customspec, config_spec, poweron, is_template):
-    """
-    Create clone spec
-    """
-    clonespec = vim.vm.CloneSpec()
-    clonespec.location = relospec
-    clonespec.customization = customspec
-    clonespec.config = config_spec
-    clonespec.powerOn = poweron
-    clonespec.template = is_template
-
-    return clonespec
+def vmdk_share_disk_extra_config(config_spec, vdev_node):
+    ss_key = "scsi%s.sharing" % vdev_node
+    options = {ss_key: 'multi-writer', 'disk.EnableUUID': 'true'}
+    for k, v in options.items():
+        opt = vim.option.OptionValue()
+        opt.key = k
+        opt.value = v
+        config_spec.extraConfig.append(opt)
+    return config_spec
 
 
 class VmCloneSpec():
