@@ -18,15 +18,43 @@ Python port of William Lam's generateHTML5VMConsole.pl
 Also ported SHA fingerprint fetching to Python OpenSSL library
 """
 
-import atexit
-import OpenSSL
-import ssl
+import os
 import sys
-import time
+import atexit
 
 from pyVim.connect import SmartConnectNoSSL, Disconnect
 from pyVmomi import vim
-from tools import cli
+
+
+def create_console_html(vm_name, wmks_url):
+    console_html = """
+<!DOCTYPE html PUBLIC"-//W3C//DTD XHTML 1.0 Strict//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd"> 
+<html xmlns="http://www.w3.org/1999/xhtml"> 
+  <head> 
+    <meta http-equiv="content-type" content="text/html; charset=utf-8" /> <title>Console</title> 
+  </head> 
+  <body> <link rel="stylesheet" type="text/css" href="css/wmks-all.css" /> 
+    <script type="text/javascript" src="jquery.js"></script> 
+    <script type="text/javascript" src="jquery-ui.min.js"></script> 
+    <script type="text/javascript" src="wmks.min.js" type="text/javascript"></script> 
+    <div id="wmksContainer" style="position:absolute;width:100%;height:100%"></div>  
+    <script> 
+      var wmks = WMKS.createWMKS("wmksContainer",{}).register(WMKS.CONST.Events.CONNECTION_STATE_CHANGE, function(event, data){
+              if (data.state == WMKS.CONST.ConnectionState.CONNECTED) {
+                console.log("connection state change : connected");
+              }
+            });
+""" + """
+      wmks.connect("%s");
+""" % wmks_url + """
+    </script > 
+  </body> 
+</html> """
+    base_dir = os.path.split(os.path.realpath(__file__))[0]
+    file_path = base_dir + "/console/" + vm_name + ".html"
+    with open(file_path, 'w') as f:
+        f.write(console_html)
+    print(file_path)
 
 
 def get_vm(content, name):
@@ -47,21 +75,6 @@ def get_vm(content, name):
     return vm
 
 
-def get_args():
-    """
-    Add VM name to args
-    """
-    parser = cli.build_arg_parser()
-
-    parser.add_argument('-n', '--name',
-                        required=True,
-                        help='Name of Virtual Machine.')
-
-    args = parser.parse_args()
-
-    return cli.prompt_for_password(args)
-
-
 def get_url(host,user,password,name,port=443):
     """
     Simple command-line program to generate a URL
@@ -78,45 +91,15 @@ def get_url(host,user,password,name,port=443):
         sys.exit(1)
 
     atexit.register(Disconnect, si)
-
     content = si.RetrieveContent()
-
     vm = get_vm(content, name)
     x = vm.AcquireTicket("webmks")
-    print x
+    # print x
     url = "wss://" + str(x.host) +":" + str(x.port)   + "/ticket/" + str(x.ticket)
     return url
 
 
-def main():
-    """
-    Simple command-line program to generate a URL
-    to open HTML5 Console in Web browser
-    """
-    args = get_args()
-    try:
-        si = SmartConnectNoSSL(host=args.host,
-                               user=args.user,
-                               pwd=args.password,
-                               port=int(args.port))
-    except Exception as e:
-        print 'Could not connect to vCenter host'
-        print repr(e)
-        sys.exit(1)
-
-    atexit.register(Disconnect, si)
-
-    content = si.RetrieveContent()
-
-    vm = get_vm(content, args.name)
-    x = vm.AcquireTicket("webmks")
-    print x
-    url = "wss://" + str(x.host) +":" + str(x.port)   + "/ticket/" + str(x.ticket)
-    print url
-
-
 if __name__ == "__main__":
-    main()
-
-# if __name__ == "__main__":
-#     print get_url('172.30.126.41', 'administrator@vsphere.local', 'Password@1', 'allinone')
+    vm_name = 'node204'
+    wmks_url = get_url('172.30.126.40', 'administrator@vsphere.local', 'P@ssw0rd', vm_name)
+    create_console_html(vm_name, wmks_url)
